@@ -52,11 +52,11 @@ def format_bytes(b):
     return "{:.2f} {}".format(b, units[i])
 
 
-def format_expiry(expiry):
-    if not expiry or expiry == 0:
+def format_expiry(ts):
+    if not ts or ts == 0:
         return "نامحدود"
     try:
-        dt = datetime.fromtimestamp(expiry / 1000)
+        dt = datetime.fromtimestamp(ts / 1000)
         now = datetime.now()
         delta = dt - now
         days = delta.days
@@ -73,7 +73,7 @@ def get_inbounds():
         return []
     try:
         cursor = db.cursor()
-        cursor.execute("SELECT id, settings, port, protocol, tag FROM inbounds")
+        cursor.execute("SELECT id, settings, port, protocol FROM inbounds")
         rows = cursor.fetchall()
         db.close()
 
@@ -84,103 +84,99 @@ def get_inbounds():
                 settings = json.loads(row[1]) if row[1] else {}
             except:
                 pass
-
             inbounds.append({
                 "id": row[0],
                 "settings": settings,
                 "port": row[2],
                 "protocol": row[3],
-                "tag": row[4],
             })
         return inbounds
     except Exception as e:
         logger.error("DB error: %s", e)
-        db.close()
+        if db:
+            db.close()
         return []
 
 
-def get_client_stats(email):
+def get_client_traffic(email):
     db = get_db()
     if not db:
         return None
     try:
         cursor = db.cursor()
-        cursor.execute(
-            "SELECT up, down, total, expiry, enable FROM client_traffics WHERE email=?",
-            (email,),
-        )
-        row = cursor.fetchone()
+        try:
+            cursor.execute("PRAGMA table_info(client_traffics)")
+            cols = [r[1] for r in cursor.fetchall()]
+        except:
+            cols = []
         db.close()
-        if row:
-            return {
-                "up": row[0],
-                "down": row[1],
-                "total": row[2],
-                "expiry": row[3],
-                "enable": row[4],
-            }
+
+        keys = {}
+        if cols:
+            db2 = get_db()
+            if db2:
+                cursor2 = db2.cursor()
+                cursor2.execute("SELECT * FROM client_traffics WHERE email=?", (email,))
+                row = cursor2.fetchone()
+                db2.close()
+                if row:
+                    for i, col in enumerate(cols):
+                        keys[col] = row[i]
+                return keys
+
         return None
     except:
         db.close()
         return None
 
 
-def find_client_by_email(email):
+def search_client_by_email(email):
     inbounds = get_inbounds()
     for inbound in inbounds:
-        for client in inbound["settings"].get("clients", []):
-            if client.get("email") == email:
-                stats = get_client_stats(email)
+        for c in inbound["settings"].get("clients", []):
+            if c.get("email") == email:
+                traffic = get_client_traffic(email)
                 return {
                     "email": email,
-                    "password": client.get("password", ""),
-                    "limit_ip": client.get("limitIp", 0),
-                    "expiry": client.get("expiry", 0),
-                    "enable": client.get("enable", True),
-                    "stats": stats,
+                    "enable": c.get("enable", True),
+                    "expiry": c.get("expiryTime", 0),
+                    "total_gb": c.get("totalGB", 0),
+                    "limit_ip": c.get("limitIp", 0),
+                    "sub_id": c.get("subId", ""),
+                    "tg_id": c.get("tgId", 0),
+                    "uuid": c.get("id", ""),
+                    "flow": c.get("flow", ""),
                     "inbound_port": inbound["port"],
                     "inbound_protocol": inbound["protocol"],
-                    "sub_id": client.get("subId", ""),
+                    "traffic": traffic,
                 }
     return None
 
 
-def find_client_by_telegram_id(telegram_id):
-    db = get_db()
-    if not db:
-        return None
+def search_client_by_telegram_id(tg_id):
+    tid = str(tg_id)
 
-    # Try clients table first
-    try:
-        cursor = db.cursor()
-        cursor.execute("SELECT email FROM clients WHERE telegram_id=?", (str(telegram_id),))
-        row = cursor.fetchone()
-        if row:
-            db.close()
-            return find_client_by_email(row[0])
-    except:
-        pass
-
-    # Fallback: search in inbounds settings for subId
-    db.close()
+    # Search in inbounds settings JSON
     inbounds = get_inbounds()
-    tid = str(telegram_id)
     for inbound in inbounds:
-        for client in inbound["settings"].get("clients", []):
-            if client.get("subId") == tid:
-                email = client.get("email", "")
-                stats = get_client_stats(email)
+        for c in inbound["settings"].get("clients", []):
+            if str(c.get("tgId", "")) == tid or str(c.get("subId", "")) == tid:
+                email = c.get("email", "")
+                traffic = get_client_traffic(email)
                 return {
                     "email": email,
-                    "password": client.get("password", ""),
-                    "limit_ip": client.get("limitIp", 0),
-                    "expiry": client.get("expiry", 0),
-                    "enable": client.get("enable", True),
-                    "stats": stats,
+                    "enable": c.get("enable", True),
+                    "expiry": c.get("expiryTime", 0),
+                    "total_gb": c.get("totalGB", 0),
+                    "limit_ip": c.get("limitIp", 0),
+                    "sub_id": c.get("subId", ""),
+                    "tg_id": c.get("tgId", 0),
+                    "uuid": c.get("id", ""),
                     "inbound_port": inbound["port"],
                     "inbound_protocol": inbound["protocol"],
-                    "sub_id": tid,
+                    "traffic": traffic,
                 }
+
     return None
 
 
@@ -188,61 +184,67 @@ def get_all_clients():
     inbounds = get_inbounds()
     clients = []
     for inbound in inbounds:
-        for client in inbound["settings"].get("clients", []):
-            email = client.get("email", "")
-            stats = get_client_stats(email)
+        for c in inbound["settings"].get("clients", []):
+            email = c.get("email", "")
+            traffic = get_client_traffic(email)
             clients.append({
                 "email": email,
-                "password": client.get("password", ""),
-                "limit_ip": client.get("limitIp", 0),
-                "expiry": client.get("expiry", 0),
-                "enable": client.get("enable", True),
-                "stats": stats,
+                "enable": c.get("enable", True),
+                "expiry": c.get("expiryTime", 0),
+                "total_gb": c.get("totalGB", 0),
+                "limit_ip": c.get("limitIp", 0),
+                "sub_id": c.get("subId", ""),
+                "tg_id": c.get("tgId", 0),
                 "inbound_port": inbound["port"],
                 "inbound_protocol": inbound["protocol"],
+                "traffic": traffic,
             })
     return clients
 
 
-def make_client_text(c, title=True):
-    up = format_bytes(c["stats"]["up"]) if c["stats"] else "0"
-    down = format_bytes(c["stats"]["down"]) if c["stats"] else "0"
-    total = format_bytes(c["stats"]["total"]) if c["stats"] and c["stats"]["total"] else "نامحدود"
-    expiry = format_expiry(c["expiry"]) if c["expiry"] else "نامحدود"
+def make_client_text(c):
+    up = 0
+    down = 0
+    total = c["total_gb"]
+    if c["traffic"]:
+        up = c["traffic"].get("up", 0)
+        down = c["traffic"].get("down", 0)
+        if not total:
+            total = c["traffic"].get("total", 0)
 
-    text = ""
-    if title:
-        text += "جزئیات کاربر: {}\n\n".format(c["email"])
+    expiry = format_expiry(c["expiry"])
+    status = "فعال" if c["enable"] else "غیرفعال"
 
-    text += (
+    text = (
+        "نام کاربری: {}\n"
         "پروتکل: {}\n"
         "پورت: {}\n"
         "آپلود: {}\n"
         "دانلود: {}\n"
-        "محدودیت ترافیک: {}\n"
+        "حجم کل: {}\n"
         "انقضا: {}\n"
         "وضعیت: {}\n"
     ).format(
+        c["email"],
         c["inbound_protocol"],
         c["inbound_port"],
-        up, down, total, expiry,
-        "فعال" if c["enable"] else "غیرفعال",
+        format_bytes(up),
+        format_bytes(down),
+        format_bytes(total) if total else "نامحدود",
+        expiry,
+        status,
     )
     return text
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    client = find_client_by_telegram_id(user_id)
+    client = search_client_by_telegram_id(user_id)
 
     if client:
         text = make_client_text(client)
-        keyboard = [
-            [InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")],
-        ]
-        await update.message.reply_text(
-            text, reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await show_main_menu(update.message)
 
@@ -255,14 +257,13 @@ async def show_main_menu(message):
     ]
     await message.reply_text(
         "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "اگر اکانت ندارید، گزینه جستجو با ایمیل را انتخاب کنید.",
+        "اگر اکانت دارید، گزینه جستجو با ایمیل را انتخاب کنید.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "دستورات:\n"
         "/start - منوی اصلی\n"
         "/info - اطلاعات اینباندها\n"
         "/clients - لیست کاربران\n"
@@ -279,34 +280,43 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "اطلاعات اینباندها:\n\n"
     for inbound in inbounds:
-        text += (
-            "شناسه: {}\n"
-            "پروتکل: {}\n"
-            "پورت: {}\n"
-            "برچسب: {}\n"
-            "---\n"
-        ).format(inbound["id"], inbound["protocol"], inbound["port"], inbound["tag"])
-
+        text += "شناسه: {} | پروتکل: {} | پورت: {}\n---\n".format(
+            inbound["id"], inbound["protocol"], inbound["port"]
+        )
     await update.message.reply_text(text)
 
 
 async def clients_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_clients_list(update.message)
+    clients = get_all_clients()
+    if not clients:
+        await update.message.reply_text("هیچ کاربری یافت نشد.")
+        return
+
+    text = "لیست کاربران:\n\n"
+    for c in clients:
+        up = format_bytes(c["traffic"]["up"]) if c["traffic"] else "0"
+        down = format_bytes(c["traffic"]["down"]) if c["traffic"] else "0"
+        expiry = format_expiry(c["expiry"])
+        text += "نام: {} | آپلود: {} | دانلود: {} | انقضا: {} | {}\n---\n".format(
+            c["email"], up, down, expiry, "فعال" if c["enable"] else "غیرفعال"
+        )
+
+    await update.message.reply_text(text)
 
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("مثال: /search user@email.com")
+        await update.message.reply_text("مثال: /search example@email.com")
         return
 
     email = context.args[0]
-    client = find_client_by_email(email)
+    client = search_client_by_email(email)
     if not client:
         await update.message.reply_text("کاربری با ایمیل {} یافت نشد.".format(email))
         return
 
     text = make_client_text(client)
-    keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+    keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -325,7 +335,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_menu(query, context)
     elif query.data.startswith("client_"):
         email = query.data.replace("client_", "")
-        client = find_client_by_email(email)
+        client = search_client_by_email(email)
         if not client:
             await query.edit_message_text("کاربر یافت نشد.")
             return
@@ -342,10 +352,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_email"):
         context.user_data["awaiting_email"] = False
         email = update.message.text.strip()
-        client = find_client_by_email(email)
+        client = search_client_by_email(email)
 
         if not client:
-            keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+            keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
             await update.message.reply_text(
                 "کاربری با ایمیل {} یافت نشد.".format(email),
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -353,13 +363,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         text = make_client_text(client)
-        keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+        keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        client = find_client_by_email(update.message.text.strip())
+        # Try direct email input
+        client = search_client_by_email(update.message.text.strip())
         if client:
             text = make_client_text(client)
-            keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+            keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await update.message.reply_text("دستور نامعتبر. /help را ببینید.")
@@ -367,40 +378,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_my_info_callback(query, context):
     user_id = query.from_user.id
-    client = find_client_by_telegram_id(user_id)
+    client = search_client_by_telegram_id(user_id)
 
     if client:
         text = make_client_text(client)
     else:
-        text = "اکانتی برای شما یافت نشد.\n"
-        text += "از گزینه جستجو با ایمیل استفاده کنید."
+        text = "اکانتی برای شما یافت نشد.\nاز گزینه جستجو با ایمیل استفاده کنید."
 
     keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-
-async def show_clients_list(message):
-    clients = get_all_clients()
-    if not clients:
-        await message.reply_text("هیچ کاربری یافت نشد.")
-        return
-
-    text = "لیست کاربران:\n\n"
-    for c in clients:
-        up = format_bytes(c["stats"]["up"]) if c["stats"] else "0"
-        down = format_bytes(c["stats"]["down"]) if c["stats"] else "0"
-        expiry = format_expiry(c["expiry"]) if c["expiry"] else "نامحدود"
-
-        text += (
-            "نام: {}\n"
-            "آپلود: {}\n"
-            "دانلود: {}\n"
-            "انقضا: {}\n"
-            "وضعیت: {}\n"
-            "---\n"
-        ).format(c["email"], up, down, expiry, "فعال" if c["enable"] else "غیرفعال")
-
-    await message.reply_text(text)
 
 
 async def show_clients_list_callback(query, context):
@@ -414,7 +400,10 @@ async def show_clients_list_callback(query, context):
         buttons.append([InlineKeyboardButton(c["email"], callback_data="client_" + c["email"])])
     buttons.append([InlineKeyboardButton("بازگشت", callback_data="back_to_menu")])
 
-    await query.edit_message_text("یک کاربر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.edit_message_text(
+        "یک کاربر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
 
 
 async def back_to_menu(query, context):
