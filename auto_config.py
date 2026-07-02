@@ -1,6 +1,6 @@
 import sqlite3
 import os
-import json
+import subprocess
 
 DB_PATHS = [
     "/etc/x-ui/x-ui.db",
@@ -14,6 +14,38 @@ def find_database():
         if os.path.exists(path):
             return path
     return None
+
+
+def run(cmd):
+    try:
+        subprocess.run(cmd, shell=True, capture_output=True)
+    except:
+        pass
+
+
+def disable_builtin_bot():
+    db_path = find_database()
+    if not db_path:
+        return
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("UPDATE settings SET value='false' WHERE key='tgBotEnable'")
+        cursor.execute("UPDATE settings SET value='' WHERE key='tgBotToken'")
+        cursor.execute("UPDATE settings SET value='' WHERE key='tgBotChatId'")
+        conn.commit()
+        conn.close()
+
+        print(" Built-in bot removed from database")
+        print(" Restarting x-ui panel...")
+
+        run("systemctl restart x-ui")
+
+        print(" Done! Built-in bot disabled permanently.")
+    except Exception as e:
+        print("Error: " + str(e))
 
 
 def get_bot_token():
@@ -35,33 +67,11 @@ def get_bot_token():
     return ""
 
 
-def disable_builtin_bot():
-    db_path = find_database()
-    if not db_path:
-        return
-
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT value FROM settings WHERE key='tgBotEnable'")
-        row = cursor.fetchone()
-        if row and row[0] == "true":
-            cursor.execute("UPDATE settings SET value='false' WHERE key='tgBotEnable'")
-            conn.commit()
-            print(" Built-in bot disabled in panel database")
-
-        conn.close()
-    except Exception as e:
-        print("Error disabling bot: " + str(e))
-
-
 if __name__ == "__main__":
     db_path = find_database()
 
     if not db_path:
-        print("Error: 3x-ui database not found at " + ", ".join(DB_PATHS))
-        print("Creating .env file without token.")
+        print("Error: 3x-ui database not found")
         env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
         with open(env_path, "w") as f:
             f.write("TELEGRAM_BOT_TOKEN=")
