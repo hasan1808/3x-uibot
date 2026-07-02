@@ -1,11 +1,15 @@
 import sqlite3
 import os
+import json
 import logging
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 from config import TELEGRAM_BOT_TOKEN
@@ -51,7 +55,6 @@ def format_bytes(b):
 def format_expiry(expiry):
     if not expiry or expiry == 0:
         return "نامحدود"
-    from datetime import datetime
     try:
         dt = datetime.fromtimestamp(expiry / 1000)
         now = datetime.now()
@@ -59,7 +62,7 @@ def format_expiry(expiry):
         days = delta.days
         if days < 0:
             return "منقضی شده"
-        return "{} ({} روز باقیمانده)".format(dt.strftime("%Y-%m-%d"), days)
+        return "{} ({} روز)".format(dt.strftime("%Y-%m-%d"), days)
     except:
         return "نامشخص"
 
@@ -76,7 +79,6 @@ def get_inbounds():
 
         inbounds = []
         for row in rows:
-            import json
             settings = {}
             try:
                 settings = json.loads(row[1]) if row[1] else {}
@@ -123,6 +125,65 @@ def get_client_stats(email):
         return None
 
 
+def find_client_by_email(email):
+    inbounds = get_inbounds()
+    for inbound in inbounds:
+        for client in inbound["settings"].get("clients", []):
+            if client.get("email") == email:
+                stats = get_client_stats(email)
+                return {
+                    "email": email,
+                    "password": client.get("password", ""),
+                    "limit_ip": client.get("limitIp", 0),
+                    "expiry": client.get("expiry", 0),
+                    "enable": client.get("enable", True),
+                    "stats": stats,
+                    "inbound_port": inbound["port"],
+                    "inbound_protocol": inbound["protocol"],
+                    "sub_id": client.get("subId", ""),
+                }
+    return None
+
+
+def find_client_by_telegram_id(telegram_id):
+    db = get_db()
+    if not db:
+        return None
+
+    # Try clients table first
+    try:
+        cursor = db.cursor()
+        cursor.execute("SELECT email FROM clients WHERE telegram_id=?", (str(telegram_id),))
+        row = cursor.fetchone()
+        if row:
+            db.close()
+            return find_client_by_email(row[0])
+    except:
+        pass
+
+    # Fallback: search in inbounds settings for subId
+    db.close()
+    inbounds = get_inbounds()
+    tid = str(telegram_id)
+    for inbound in inbounds:
+        for client in inbound["settings"].get("clients", []):
+            if client.get("subId") == tid:
+                email = client.get("email", "")
+                stats = get_client_stats(email)
+                return {
+                    "email": email,
+                    "password": client.get("password", ""),
+                    "limit_ip": client.get("limitIp", 0),
+                    "expiry": client.get("expiry", 0),
+                    "enable": client.get("enable", True),
+                    "stats": stats,
+                    "inbound_port": inbound["port"],
+                    "inbound_protocol": inbound["protocol"],
+                    "sub_id": tid,
+                }
+    return None
+
+
 def get_all_clients():
     inbounds = get_inbounds()
     clients = []
@@ -143,53 +204,74 @@ def get_all_clients():
     return clients
 
 
+def make_client_text(c, title=True):
+    up = format_bytes(c["stats"]["up"]) if c["stats"] else "0"
+    down = format_bytes(c["stats"]["down"]) if c["stats"] else "0"
+    total = format_bytes(c["stats"]["total"]) if c["stats"] and c["stats"]["total"] else "نامحدود"
+    expiry = format_expiry(c["expiry"]) if c["expiry"] else "نامحدود"
+
+    text = ""
+    if title:
+        text += "جزئیات کاربر: {}\n\n".format(c["email"])
+
+    text += (
+        "پروتکل: {}\n"
+        "پورت: {}\n"
+        "آپلود: {}\n"
+        "دانلود: {}\n"
+        "محدودیت ترافیک: {}\n"
+        "انقضا: {}\n"
+        "وضعیت: {}\n"
+    ).format(
+        c["inbound_protocol"],
+        c["inbound_port"],
+        up, down, total, expiry,
+        "فعال" if c["enable"] else "غیرفعال",
+    )
+    return text
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    client = find_client_by_telegram_id(user_id)
+
+    if client:
+        text = make_client_text(client)
+        keyboard = [
+            [InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")],
+        ]
+        await update.message.reply_text(
+            text, reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await show_main_menu(update.message)
+
+
+async def show_main_menu(message):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
+        [InlineKeyboardButton("جستجو با ایمیل", callback_data="search_email")],
         [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
+    await message.reply_text(
         "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "یکی از گزینه‌های زیر را انتخاب کنید:",
-        reply_markup=reply_markup,
+        "اگر اکانت ندارید، گزینه جستجو با ایمیل را انتخاب کنید.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "دستورات موجود:\n"
+        "دستورات:\n"
         "/start - منوی اصلی\n"
         "/info - اطلاعات اینباندها\n"
         "/clients - لیست کاربران\n"
+        "/search <ایمیل> - جستجوی کاربر\n"
         "/help - راهنما"
     )
 
 
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_my_info(update, context)
-
-
-async def clients_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_clients_list(update, context)
-
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "my_info":
-        await show_my_info_callback(query, context)
-    elif query.data == "list_clients":
-        await show_clients_list_callback(query, context)
-    elif query.data == "back_to_menu":
-        await back_to_menu(query, context)
-    elif query.data.startswith("client_"):
-        email = query.data.replace("client_", "")
-        await show_client_details_callback(query, email, context)
-
-
-async def show_my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inbounds = get_inbounds()
     if not inbounds:
         await update.message.reply_text("هیچ اینباندی یافت نشد.")
@@ -208,30 +290,99 @@ async def show_my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-async def show_my_info_callback(query, context):
-    inbounds = get_inbounds()
-    if not inbounds:
-        await query.edit_message_text("هیچ اینباندی یافت نشد.")
+async def clients_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_clients_list(update.message)
+
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("مثال: /search user@email.com")
         return
 
-    text = "اطلاعات اینباندها:\n\n"
-    for inbound in inbounds:
-        text += (
-            "شناسه: {}\n"
-            "پروتکل: {}\n"
-            "پورت: {}\n"
-            "برچسب: {}\n"
-            "---\n"
-        ).format(inbound["id"], inbound["protocol"], inbound["port"], inbound["tag"])
+    email = context.args[0]
+    client = find_client_by_email(email)
+    if not client:
+        await update.message.reply_text("کاربری با ایمیل {} یافت نشد.".format(email))
+        return
+
+    text = make_client_text(client)
+    keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "my_info":
+        await show_my_info_callback(query, context)
+    elif query.data == "search_email":
+        context.user_data["awaiting_email"] = True
+        await query.edit_message_text("ایمیل کاربر را وارد کنید:")
+    elif query.data == "list_clients":
+        await show_clients_list_callback(query, context)
+    elif query.data == "back_to_menu":
+        await back_to_menu(query, context)
+    elif query.data.startswith("client_"):
+        email = query.data.replace("client_", "")
+        client = find_client_by_email(email)
+        if not client:
+            await query.edit_message_text("کاربر یافت نشد.")
+            return
+
+        text = make_client_text(client)
+        keyboard = [
+            [InlineKeyboardButton("بازگشت به لیست", callback_data="list_clients")],
+            [InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_email"):
+        context.user_data["awaiting_email"] = False
+        email = update.message.text.strip()
+        client = find_client_by_email(email)
+
+        if not client:
+            keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+            await update.message.reply_text(
+                "کاربری با ایمیل {} یافت نشد.".format(email),
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
+
+        text = make_client_text(client)
+        keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        client = find_client_by_email(update.message.text.strip())
+        if client:
+            text = make_client_text(client)
+            keyboard = [[InlineKeyboardButton("بازگشت به منو", callback_data="back_to_menu")]]
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_text("دستور نامعتبر. /help را ببینید.")
+
+
+async def show_my_info_callback(query, context):
+    user_id = query.from_user.id
+    client = find_client_by_telegram_id(user_id)
+
+    if client:
+        text = make_client_text(client)
+    else:
+        text = "اکانتی برای شما یافت نشد.\n"
+        text += "از گزینه جستجو با ایمیل استفاده کنید."
 
     keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_clients_list(message):
     clients = get_all_clients()
     if not clients:
-        await update.message.reply_text("هیچ کاربری یافت نشد.")
+        await message.reply_text("هیچ کاربری یافت نشد.")
         return
 
     text = "لیست کاربران:\n\n"
@@ -249,7 +400,7 @@ async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "---\n"
         ).format(c["email"], up, down, expiry, "فعال" if c["enable"] else "غیرفعال")
 
-    await update.message.reply_text(text)
+    await message.reply_text(text)
 
 
 async def show_clients_list_callback(query, context):
@@ -266,55 +417,14 @@ async def show_clients_list_callback(query, context):
     await query.edit_message_text("یک کاربر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def show_client_details_callback(query, email, context):
-    clients = get_all_clients()
-    target = None
-    for c in clients:
-        if c["email"] == email:
-            target = c
-            break
-
-    if not target:
-        await query.edit_message_text("کاربر یافت نشد.")
-        return
-
-    up = format_bytes(target["stats"]["up"]) if target["stats"] else "0"
-    down = format_bytes(target["stats"]["down"]) if target["stats"] else "0"
-    total = format_bytes(target["stats"]["total"]) if target["stats"] else "نامحدود"
-    expiry = format_expiry(target["expiry"]) if target["expiry"] else "نامحدود"
-
-    text = (
-        "جزئیات کاربر: {}\n\n"
-        "پروتکل: {}\n"
-        "پورت: {}\n"
-        "آپلود: {}\n"
-        "دانلود: {}\n"
-        "محدودیت ترافیک: {}\n"
-        "انقضا: {}\n"
-        "وضعیت: {}\n"
-    ).format(
-        target["email"],
-        target["inbound_protocol"],
-        target["inbound_port"],
-        up, down, total, expiry,
-        "فعال" if target["enable"] else "غیرفعال",
-    )
-
-    keyboard = [
-        [InlineKeyboardButton("بازگشت به لیست", callback_data="list_clients")],
-        [InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")],
-    ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-
 async def back_to_menu(query, context):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
+        [InlineKeyboardButton("جستجو با ایمیل", callback_data="search_email")],
         [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     await query.edit_message_text(
-        "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "یکی از گزینه‌های زیر را انتخاب کنید:",
+        "به ربات مدیریت 3x-ui خوش آمدید!",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -326,7 +436,9 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("clients", clients_command))
+    app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot is starting...")
     app.run_polling()
