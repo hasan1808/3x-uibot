@@ -79,8 +79,14 @@ if __name__ == "__main__":
     if token:
         print("Token loaded: " + token[:15] + "...")
         disable_builtin_bot()
-        print("Restarting x-ui to apply changes...")
-        run("systemctl restart x-ui")
+        print("Fully restarting x-ui to kill old bot...")
+        run("systemctl stop x-ui")
+        import time
+        time.sleep(3)
+        run("killall -9 x-ui 2>/dev/null || true")
+        run("pkill -f 'x-ui' 2>/dev/null || true")
+        time.sleep(1)
+        run("systemctl start x-ui")
         print("Done!")
     else:
         print("No token found. Add it in Panel UI > Settings > Telegram Bot.")

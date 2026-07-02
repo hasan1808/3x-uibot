@@ -130,26 +130,51 @@ def get_client_traffic(email):
         return None
 
 
-def search_client_by_email(email):
+def build_client(c, inbound):
+    email = c.get("email", "")
+    traffic = get_client_traffic(email)
+    return {
+        "email": email,
+        "enable": c.get("enable", True),
+        "expiry": c.get("expiryTime", 0),
+        "total_gb": c.get("totalGB", 0),
+        "limit_ip": c.get("limitIp", 0),
+        "sub_id": c.get("subId", ""),
+        "tg_id": c.get("tgId", 0),
+        "uuid": c.get("id", ""),
+        "flow": c.get("flow", ""),
+        "inbound_port": inbound["port"],
+        "inbound_protocol": inbound["protocol"],
+        "traffic": traffic,
+    }
+
+
+def search_clients(query):
+    query = query.strip().lower()
+    if not query:
+        return []
+
     inbounds = get_inbounds()
+    results = []
+
     for inbound in inbounds:
         for c in inbound["settings"].get("clients", []):
-            if c.get("email") == email:
-                traffic = get_client_traffic(email)
-                return {
-                    "email": email,
-                    "enable": c.get("enable", True),
-                    "expiry": c.get("expiryTime", 0),
-                    "total_gb": c.get("totalGB", 0),
-                    "limit_ip": c.get("limitIp", 0),
-                    "sub_id": c.get("subId", ""),
-                    "tg_id": c.get("tgId", 0),
-                    "uuid": c.get("id", ""),
-                    "flow": c.get("flow", ""),
-                    "inbound_port": inbound["port"],
-                    "inbound_protocol": inbound["protocol"],
-                    "traffic": traffic,
-                }
+            email = (c.get("email") or "").lower()
+            uid = (c.get("id") or "").lower()
+            sub_id = (c.get("subId") or "").lower()
+
+            if email == query or uid == query or sub_id == query:
+                return [build_client(c, inbound)]
+            if query in email or query in uid or query in sub_id:
+                results.append(build_client(c, inbound))
+
+    return results
+
+
+def search_client_by_email(email):
+    results = search_clients(email)
+    if results:
+        return results[0]
     return None
 
 
@@ -267,8 +292,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - منوی اصلی\n"
         "/info - اطلاعات اینباندها\n"
         "/clients - لیست کاربران\n"
-        "/search <ایمیل> - جستجوی کاربر\n"
-        "/help - راهنما"
+        "/search <ایمیل/نام/UUID> - جستجوی کاربر\n"
+        "/help - راهنما\n\n"
+        "می‌توانید ایمیل، UUID یا قسمتی از نام را جستجو کنید."
     )
 
 
@@ -309,15 +335,8 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("مثال: /search example@email.com")
         return
 
-    email = context.args[0]
-    client = search_client_by_email(email)
-    if not client:
-        await update.message.reply_text("کاربری با ایمیل {} یافت نشد.".format(email))
-        return
-
-    text = make_client_text(client)
-    keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    query = " ".join(context.args)
+    await show_search_results(update.message, query)
 
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,32 +367,61 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
+async def show_search_results(message, query):
+    results = search_clients(query)
+
+    if not results:
+        keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
+        await message.reply_text(
+            "نتیجه‌ای برای '{}' یافت نشد.\n"
+            "می‌توانید با ایمیل، UUID یا نام جستجو کنید.".format(query),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return
+
+    if len(results) == 1:
+        text = make_client_text(results[0])
+        keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
+        await message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    buttons = []
+    for r in results:
+        label = r["email"] + " (" + r["inbound_protocol"] + ")"
+        buttons.append([InlineKeyboardButton(label, callback_data="client_" + r["email"])])
+    buttons.append([InlineKeyboardButton("بازگشت", callback_data="back_to_menu")])
+
+    await message.reply_text(
+        "{} نتیجه برای '{}':".format(len(results), query),
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
+
     if context.user_data.get("awaiting_email"):
         context.user_data["awaiting_email"] = False
-        email = update.message.text.strip()
-        client = search_client_by_email(email)
+        await show_search_results(update.message, query)
+        return
 
-        if not client:
-            keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
-            await update.message.reply_text(
-                "کاربری با ایمیل {} یافت نشد.".format(email),
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-            return
-
-        text = make_client_text(client)
-        keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        # Try direct email input
-        client = search_client_by_email(update.message.text.strip())
-        if client:
-            text = make_client_text(client)
+    results = search_clients(query)
+    if results:
+        if len(results) == 1:
+            text = make_client_text(results[0])
             keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            await update.message.reply_text("دستور نامعتبر. /help را ببینید.")
+            buttons = []
+            for r in results:
+                buttons.append([InlineKeyboardButton(r["email"], callback_data="client_" + r["email"])])
+            buttons.append([InlineKeyboardButton("بازگشت", callback_data="back_to_menu")])
+            await update.message.reply_text(
+                "چند نتیجه یافت شد. یکی را انتخاب کنید:",
+                reply_markup=InlineKeyboardMarkup(buttons),
+            )
+    else:
+        await update.message.reply_text("دستور نامعتبر. /help یا /start را بزنید.")
 
 
 async def show_my_info_callback(query, context):
