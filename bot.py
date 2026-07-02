@@ -50,7 +50,7 @@ def format_bytes(b):
 
 def format_expiry(expiry):
     if not expiry or expiry == 0:
-        return "Unlimited"
+        return "نامحدود"
     from datetime import datetime
     try:
         dt = datetime.fromtimestamp(expiry / 1000)
@@ -58,10 +58,10 @@ def format_expiry(expiry):
         delta = dt - now
         days = delta.days
         if days < 0:
-            return "Expired"
-        return "{} ({} days left)".format(dt.strftime("%Y-%m-%d"), days)
+            return "منقضی شده"
+        return "{} ({} روز باقیمانده)".format(dt.strftime("%Y-%m-%d"), days)
     except:
-        return "Unknown"
+        return "نامشخص"
 
 
 def get_inbounds():
@@ -145,23 +145,24 @@ def get_all_clients():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("My Subscription", callback_data="my_info")],
-        [InlineKeyboardButton("Client List", callback_data="list_clients")],
+        [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
+        [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "Welcome to 3x-ui Bot!\nChoose an option below:",
+        "به ربات مدیریت 3x-ui خوش آمدید!\n"
+        "یکی از گزینه‌های زیر را انتخاب کنید:",
         reply_markup=reply_markup,
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Available commands:\n"
-        "/start - Main menu\n"
-        "/info - Inbound info\n"
-        "/clients - Client list\n"
-        "/help - Help"
+        "دستورات موجود:\n"
+        "/start - منوی اصلی\n"
+        "/info - اطلاعات اینباندها\n"
+        "/clients - لیست کاربران\n"
+        "/help - راهنما"
     )
 
 
@@ -191,16 +192,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inbounds = get_inbounds()
     if not inbounds:
-        await update.message.reply_text("No inbounds found.")
+        await update.message.reply_text("هیچ اینباندی یافت نشد.")
         return
 
-    text = "Inbound Information:\n\n"
+    text = "اطلاعات اینباندها:\n\n"
     for inbound in inbounds:
         text += (
-            "ID: {}\n"
-            "Protocol: {}\n"
-            "Port: {}\n"
-            "Tag: {}\n"
+            "شناسه: {}\n"
+            "پروتکل: {}\n"
+            "پورت: {}\n"
+            "برچسب: {}\n"
             "---\n"
         ).format(inbound["id"], inbound["protocol"], inbound["port"], inbound["tag"])
 
@@ -210,43 +211,43 @@ async def show_my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_my_info_callback(query, context):
     inbounds = get_inbounds()
     if not inbounds:
-        await query.edit_message_text("No inbounds found.")
+        await query.edit_message_text("هیچ اینباندی یافت نشد.")
         return
 
-    text = "Inbound Information:\n\n"
+    text = "اطلاعات اینباندها:\n\n"
     for inbound in inbounds:
         text += (
-            "ID: {}\n"
-            "Protocol: {}\n"
-            "Port: {}\n"
-            "Tag: {}\n"
+            "شناسه: {}\n"
+            "پروتکل: {}\n"
+            "پورت: {}\n"
+            "برچسب: {}\n"
             "---\n"
         ).format(inbound["id"], inbound["protocol"], inbound["port"], inbound["tag"])
 
-    keyboard = [[InlineKeyboardButton("Back", callback_data="back_to_menu")]]
+    keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clients = get_all_clients()
     if not clients:
-        await update.message.reply_text("No clients found.")
+        await update.message.reply_text("هیچ کاربری یافت نشد.")
         return
 
-    text = "Client List:\n\n"
+    text = "لیست کاربران:\n\n"
     for c in clients:
         up = format_bytes(c["stats"]["up"]) if c["stats"] else "0"
         down = format_bytes(c["stats"]["down"]) if c["stats"] else "0"
-        expiry = format_expiry(c["expiry"]) if c["expiry"] else "Unlimited"
+        expiry = format_expiry(c["expiry"]) if c["expiry"] else "نامحدود"
 
         text += (
-            "Name: {}\n"
-            "Upload: {}\n"
-            "Download: {}\n"
-            "Expiry: {}\n"
-            "Status: {}\n"
+            "نام: {}\n"
+            "آپلود: {}\n"
+            "دانلود: {}\n"
+            "انقضا: {}\n"
+            "وضعیت: {}\n"
             "---\n"
-        ).format(c["email"], up, down, expiry, "Active" if c["enable"] else "Disabled")
+        ).format(c["email"], up, down, expiry, "فعال" if c["enable"] else "غیرفعال")
 
     await update.message.reply_text(text)
 
@@ -254,15 +255,15 @@ async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_clients_list_callback(query, context):
     clients = get_all_clients()
     if not clients:
-        await query.edit_message_text("No clients found.")
+        await query.edit_message_text("هیچ کاربری یافت نشد.")
         return
 
     buttons = []
     for c in clients:
         buttons.append([InlineKeyboardButton(c["email"], callback_data="client_" + c["email"])])
-    buttons.append([InlineKeyboardButton("Back", callback_data="back_to_menu")])
+    buttons.append([InlineKeyboardButton("بازگشت", callback_data="back_to_menu")])
 
-    await query.edit_message_text("Select a client:", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.edit_message_text("یک کاربر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def show_client_details_callback(query, email, context):
@@ -274,45 +275,46 @@ async def show_client_details_callback(query, email, context):
             break
 
     if not target:
-        await query.edit_message_text("Client not found.")
+        await query.edit_message_text("کاربر یافت نشد.")
         return
 
     up = format_bytes(target["stats"]["up"]) if target["stats"] else "0"
     down = format_bytes(target["stats"]["down"]) if target["stats"] else "0"
-    total = format_bytes(target["stats"]["total"]) if target["stats"] else "Unlimited"
-    expiry = format_expiry(target["expiry"]) if target["expiry"] else "Unlimited"
+    total = format_bytes(target["stats"]["total"]) if target["stats"] else "نامحدود"
+    expiry = format_expiry(target["expiry"]) if target["expiry"] else "نامحدود"
 
     text = (
-        "Client Details: {}\n\n"
-        "Protocol: {}\n"
-        "Port: {}\n"
-        "Upload: {}\n"
-        "Download: {}\n"
-        "Traffic Limit: {}\n"
-        "Expiry: {}\n"
-        "Status: {}\n"
+        "جزئیات کاربر: {}\n\n"
+        "پروتکل: {}\n"
+        "پورت: {}\n"
+        "آپلود: {}\n"
+        "دانلود: {}\n"
+        "محدودیت ترافیک: {}\n"
+        "انقضا: {}\n"
+        "وضعیت: {}\n"
     ).format(
         target["email"],
         target["inbound_protocol"],
         target["inbound_port"],
         up, down, total, expiry,
-        "Active" if target["enable"] else "Disabled",
+        "فعال" if target["enable"] else "غیرفعال",
     )
 
     keyboard = [
-        [InlineKeyboardButton("Back to List", callback_data="list_clients")],
-        [InlineKeyboardButton("Main Menu", callback_data="back_to_menu")],
+        [InlineKeyboardButton("بازگشت به لیست", callback_data="list_clients")],
+        [InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")],
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def back_to_menu(query, context):
     keyboard = [
-        [InlineKeyboardButton("My Subscription", callback_data="my_info")],
-        [InlineKeyboardButton("Client List", callback_data="list_clients")],
+        [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
+        [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     await query.edit_message_text(
-        "Welcome to 3x-ui Bot!\nChoose an option below:",
+        "به ربات مدیریت 3x-ui خوش آمدید!\n"
+        "یکی از گزینه‌های زیر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
