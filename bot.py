@@ -1,3 +1,5 @@
+import sqlite3
+import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -6,8 +8,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
 )
-from config import TELEGRAM_BOT_TOKEN, PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD
-from panel_api import PanelAPI, format_bytes, format_expiry
+from config import TELEGRAM_BOT_TOKEN
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -15,14 +16,131 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-panel = None
+DB_PATHS = [
+    "/etc/x-ui/x-ui.db",
+    "/usr/local/x-ui/x-ui.db",
+    "/opt/x-ui/x-ui.db",
+]
 
 
-def get_panel():
-    global panel
-    if panel is None:
-        panel = PanelAPI(PANEL_URL, PANEL_USERNAME, PANEL_PASSWORD)
-    return panel
+def find_database():
+    for path in DB_PATHS:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def get_db():
+    db_path = find_database()
+    if not db_path:
+        return None
+    return sqlite3.connect(db_path)
+
+
+def format_bytes(b):
+    if not b or b == 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    while b >= 1024 and i < len(units) - 1:
+        b /= 1024
+        i += 1
+    return "{:.2f} {}".format(b, units[i])
+
+
+def format_expiry(expiry):
+    if not expiry or expiry == 0:
+        return "Unlimited"
+    from datetime import datetime
+    try:
+        dt = datetime.fromtimestamp(expiry / 1000)
+        now = datetime.now()
+        delta = dt - now
+        days = delta.days
+        if days < 0:
+            return "Expired"
+        return "{} ({} days left)".format(dt.strftime("%Y-%m-%d"), days)
+    except:
+        return "Unknown"
+
+
+def get_inbounds():
+    db = get_db()
+    if not db:
+        return []
+    try:
+        cursor = db.cursor()
+        cursor.execute("SELECT id, settings, port, protocol, tag FROM inbounds")
+        rows = cursor.fetchall()
+        db.close()
+
+        inbounds = []
+        for row in rows:
+            import json
+            settings = {}
+            try:
+                settings = json.loads(row[1]) if row[1] else {}
+            except:
+                pass
+
+            inbounds.append({
+                "id": row[0],
+                "settings": settings,
+                "port": row[2],
+                "protocol": row[3],
+                "tag": row[4],
+            })
+        return inbounds
+    except Exception as e:
+        logger.error("DB error: %s", e)
+        db.close()
+        return []
+
+
+def get_client_stats(email):
+    db = get_db()
+    if not db:
+        return None
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            "SELECT up, down, total, expiry, enable FROM client_traffics WHERE email=?",
+            (email,),
+        )
+        row = cursor.fetchone()
+        db.close()
+        if row:
+            return {
+                "up": row[0],
+                "down": row[1],
+                "total": row[2],
+                "expiry": row[3],
+                "enable": row[4],
+            }
+        return None
+    except:
+        db.close()
+        return None
+
+
+def get_all_clients():
+    inbounds = get_inbounds()
+    clients = []
+    for inbound in inbounds:
+        for client in inbound["settings"].get("clients", []):
+            email = client.get("email", "")
+            stats = get_client_stats(email)
+            clients.append({
+                "email": email,
+                "password": client.get("password", ""),
+                "limit_ip": client.get("limitIp", 0),
+                "expiry": client.get("expiry", 0),
+                "enable": client.get("enable", True),
+                "stats": stats,
+                "inbound_port": inbound["port"],
+                "inbound_protocol": inbound["protocol"],
+            })
+    return clients
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,8 +150,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "Welcome to 3x-ui Bot!\n"
-        "Choose an option below:",
+        "Welcome to 3x-ui Bot!\nChoose an option below:",
         reply_markup=reply_markup,
     )
 
@@ -41,9 +158,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Available commands:\n"
-        "/start - Show main menu\n"
-        "/info - Show inbound info\n"
-        "/clients - List all clients\n"
+        "/start - Main menu\n"
+        "/info - Inbound info\n"
+        "/clients - Client list\n"
         "/help - Help"
     )
 
@@ -72,152 +189,121 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        p = get_panel()
-        inbounds = p.get_inbounds()
+    inbounds = get_inbounds()
+    if not inbounds:
+        await update.message.reply_text("No inbounds found.")
+        return
 
-        if not inbounds:
-            await update.message.reply_text("No inbounds found.")
-            return
+    text = "Inbound Information:\n\n"
+    for inbound in inbounds:
+        text += (
+            "ID: {}\n"
+            "Protocol: {}\n"
+            "Port: {}\n"
+            "Tag: {}\n"
+            "---\n"
+        ).format(inbound["id"], inbound["protocol"], inbound["port"], inbound["tag"])
 
-        text = "Inbound Information:\n\n"
-        for inbound in inbounds:
-            client_count = len(inbound.get("clientStats", []))
-            text += (
-                f"ID: {inbound.get('id')}\n"
-                f"Protocol: {inbound.get('protocol')}\n"
-                f"Port: {inbound.get('port')}\n"
-                f"Clients: {client_count}\n"
-                f"---\n"
-            )
-
-        await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+    await update.message.reply_text(text)
 
 
 async def show_my_info_callback(query, context):
-    try:
-        p = get_panel()
-        inbounds = p.get_inbounds()
+    inbounds = get_inbounds()
+    if not inbounds:
+        await query.edit_message_text("No inbounds found.")
+        return
 
-        if not inbounds:
-            await query.edit_message_text("No inbounds found.")
-            return
+    text = "Inbound Information:\n\n"
+    for inbound in inbounds:
+        text += (
+            "ID: {}\n"
+            "Protocol: {}\n"
+            "Port: {}\n"
+            "Tag: {}\n"
+            "---\n"
+        ).format(inbound["id"], inbound["protocol"], inbound["port"], inbound["tag"])
 
-        text = "Inbound Information:\n\n"
-        for inbound in inbounds:
-            client_count = len(inbound.get("clientStats", []))
-            text += (
-                f"ID: {inbound.get('id')}\n"
-                f"Protocol: {inbound.get('protocol')}\n"
-                f"Port: {inbound.get('port')}\n"
-                f"Clients: {client_count}\n"
-                f"---\n"
-            )
-
-        keyboard = [[InlineKeyboardButton("Back", callback_data="back_to_menu")]]
-        await query.edit_message_text(
-            text, reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    except Exception as e:
-        await query.edit_message_text(f"Error: {e}")
+    keyboard = [[InlineKeyboardButton("Back", callback_data="back_to_menu")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        p = get_panel()
-        inbounds = p.get_inbounds()
+    clients = get_all_clients()
+    if not clients:
+        await update.message.reply_text("No clients found.")
+        return
 
-        text = "Client List:\n\n"
-        for inbound in inbounds:
-            settings = p._parse_settings(inbound.get("settings", ""))
-            for client in settings.get("clients", []):
-                email = client.get("email", "Unknown")
-                stats = None
-                for cs in inbound.get("clientStats", []):
-                    if cs.get("email") == email:
-                        stats = cs
-                        break
+    text = "Client List:\n\n"
+    for c in clients:
+        up = format_bytes(c["stats"]["up"]) if c["stats"] else "0"
+        down = format_bytes(c["stats"]["down"]) if c["stats"] else "0"
+        expiry = format_expiry(c["expiry"]) if c["expiry"] else "Unlimited"
 
-                up = format_bytes(stats.get("up", 0)) if stats else "0"
-                down = format_bytes(stats.get("down", 0)) if stats else "0"
-                expiry = format_expiry(client.get("expiry")) if client.get("expiry") else "Unlimited"
+        text += (
+            "Name: {}\n"
+            "Upload: {}\n"
+            "Download: {}\n"
+            "Expiry: {}\n"
+            "Status: {}\n"
+            "---\n"
+        ).format(c["email"], up, down, expiry, "Active" if c["enable"] else "Disabled")
 
-                text += (
-                    f"Name: {email}\n"
-                    f"Upload: {up}\n"
-                    f"Download: {down}\n"
-                    f"Expiry: {expiry}\n"
-                    f"---\n"
-                )
-
-        await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+    await update.message.reply_text(text)
 
 
 async def show_clients_list_callback(query, context):
-    try:
-        p = get_panel()
-        inbounds = p.get_inbounds()
+    clients = get_all_clients()
+    if not clients:
+        await query.edit_message_text("No clients found.")
+        return
 
-        buttons = []
-        for inbound in inbounds:
-            settings = p._parse_settings(inbound.get("settings", ""))
-            for client in settings.get("clients", []):
-                email = client.get("email", "Unknown")
-                buttons.append(
-                    [InlineKeyboardButton(email, callback_data=f"client_{email}")]
-                )
+    buttons = []
+    for c in clients:
+        buttons.append([InlineKeyboardButton(c["email"], callback_data="client_" + c["email"])])
+    buttons.append([InlineKeyboardButton("Back", callback_data="back_to_menu")])
 
-        buttons.append([InlineKeyboardButton("Back", callback_data="back_to_menu")])
-
-        text = "Select a client:\n"
-        await query.edit_message_text(
-            text, reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    except Exception as e:
-        await query.edit_message_text(f"Error: {e}")
+    await query.edit_message_text("Select a client:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def show_client_details_callback(query, email, context):
-    try:
-        p = get_panel()
-        result = p.find_client_by_email(email)
+    clients = get_all_clients()
+    target = None
+    for c in clients:
+        if c["email"] == email:
+            target = c
+            break
 
-        if not result:
-            await query.edit_message_text(f"Client {email} not found.")
-            return
+    if not target:
+        await query.edit_message_text("Client not found.")
+        return
 
-        client = result["client"]
-        stats = result["stats"]
-        inbound = result["inbound"]
+    up = format_bytes(target["stats"]["up"]) if target["stats"] else "0"
+    down = format_bytes(target["stats"]["down"]) if target["stats"] else "0"
+    total = format_bytes(target["stats"]["total"]) if target["stats"] else "Unlimited"
+    expiry = format_expiry(target["expiry"]) if target["expiry"] else "Unlimited"
 
-        up = format_bytes(stats.get("up", 0)) if stats else "0"
-        down = format_bytes(stats.get("down", 0)) if stats else "0"
-        expiry = format_expiry(client.get("expiry")) if client.get("expiry") else "Unlimited"
-        limit = format_bytes(client.get("limit", 0)) if client.get("limit") else "Unlimited"
+    text = (
+        "Client Details: {}\n\n"
+        "Protocol: {}\n"
+        "Port: {}\n"
+        "Upload: {}\n"
+        "Download: {}\n"
+        "Traffic Limit: {}\n"
+        "Expiry: {}\n"
+        "Status: {}\n"
+    ).format(
+        target["email"],
+        target["inbound_protocol"],
+        target["inbound_port"],
+        up, down, total, expiry,
+        "Active" if target["enable"] else "Disabled",
+    )
 
-        text = (
-            f"Client Details: {email}\n\n"
-            f"Protocol: {inbound.get('protocol')}\n"
-            f"Port: {inbound.get('port')}\n"
-            f"Upload: {up}\n"
-            f"Download: {down}\n"
-            f"Traffic Limit: {limit}\n"
-            f"Expiry Date: {expiry}\n"
-        )
-
-        keyboard = [
-            [InlineKeyboardButton("Back to List", callback_data="list_clients")],
-            [InlineKeyboardButton("Main Menu", callback_data="back_to_menu")],
-        ]
-        await query.edit_message_text(
-            text, reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    except Exception as e:
-        await query.edit_message_text(f"Error: {e}")
+    keyboard = [
+        [InlineKeyboardButton("Back to List", callback_data="list_clients")],
+        [InlineKeyboardButton("Main Menu", callback_data="back_to_menu")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def back_to_menu(query, context):
@@ -225,11 +311,9 @@ async def back_to_menu(query, context):
         [InlineKeyboardButton("My Subscription", callback_data="my_info")],
         [InlineKeyboardButton("Client List", callback_data="list_clients")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        "Welcome to 3x-ui Bot!\n"
-        "Choose an option below:",
-        reply_markup=reply_markup,
+        "Welcome to 3x-ui Bot!\nChoose an option below:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 

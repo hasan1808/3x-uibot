@@ -1,88 +1,47 @@
 import sqlite3
 import os
 
-PANEL_DB_PATHS = [
+DB_PATHS = [
     "/etc/x-ui/x-ui.db",
     "/usr/local/x-ui/x-ui.db",
     "/opt/x-ui/x-ui.db",
 ]
 
-WEB_DB_PATHS = [
-    "/var/www/html/x-ui/x-ui.db",
-    "/var/www/x-ui/x-ui.db",
-]
-
 
 def find_database():
-    for path in PANEL_DB_PATHS + WEB_DB_PATHS:
+    for path in DB_PATHS:
         if os.path.exists(path):
             return path
     return None
 
 
-def read_settings_table(db_path):
+def get_bot_token():
+    db_path = find_database()
+    if not db_path:
+        return ""
+
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-
-        config = {}
-
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cursor.fetchall()]
-
-        if "settings" in tables:
-            cursor.execute("SELECT key, value FROM settings;")
-            for row in cursor.fetchall():
-                key, value = row
-                if key and value:
-                    config[str(key)] = str(value)
-
+        cursor.execute("SELECT value FROM settings WHERE key='tgBotToken'")
+        row = cursor.fetchone()
         conn.close()
-        return config, tables
-
+        if row and row[0]:
+            return str(row[0])
     except Exception as e:
-        print("Error reading database: " + str(e))
-        return {}, []
+        print("Error: " + str(e))
 
-
-def get_env_content():
-    db_path = find_database()
-
-    if not db_path:
-        print("No database found")
-        return "TELEGRAM_BOT_TOKEN=\nPANEL_URL=http://localhost:2053\nPANEL_USERNAME=admin\nPANEL_PASSWORD="
-
-    config, tables = read_settings_table(db_path)
-
-    bot_token = config.get("tgBotToken", "")
-    if not bot_token:
-        bot_token = config.get("telegramBotToken", "")
-    if not bot_token:
-        for key in config:
-            if "token" in key.lower() and config[key] and len(config[key]) > 10:
-                bot_token = config[key]
-                break
-
-    username = config.get("username", "admin")
-    password = config.get("password", "")
-
-    lines = [
-        "TELEGRAM_BOT_TOKEN=" + bot_token,
-        "PANEL_URL=http://localhost:2053",
-        "PANEL_USERNAME=" + username,
-        "PANEL_PASSWORD=" + password,
-    ]
-
-    return "\n".join(lines)
+    return ""
 
 
 if __name__ == "__main__":
-    content = get_env_content()
+    token = get_bot_token()
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 
     with open(env_path, "w") as f:
-        f.write(content)
+        f.write("TELEGRAM_BOT_TOKEN=" + token)
 
-    print(".env file created at: " + env_path)
-    print("")
-    print(content.replace("PANEL_PASSWORD=", "PANEL_PASSWORD=***"))
+    if token:
+        print("Done! Bot token saved.")
+    else:
+        print("No bot token found in database.")
