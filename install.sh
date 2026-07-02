@@ -18,10 +18,8 @@ cp bot.py config.py panel_api.py requirements.txt $INSTALL_DIR/
 chmod 600 $INSTALL_DIR/.env 2>/dev/null || true
 
 echo "[3/5] نصب پایتون و pip..."
-if ! command -v python3 &> /dev/null; then
-    apt-get update
-    apt-get install -y python3 python3-pip python3-venv
-fi
+apt-get update
+apt-get install -y python3 python3-pip python3-venv python3.8-venv 2>/dev/null || true
 
 echo "[4/5] ایجاد محیط مجازی و نصب پکیج‌ها..."
 cd $INSTALL_DIR
