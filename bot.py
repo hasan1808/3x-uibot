@@ -27,24 +27,24 @@ def get_panel():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("اطلاعات اشتراک من", callback_data="my_info")],
-        [InlineKeyboardButton("لیست کلاینت‌ها", callback_data="list_clients")],
+        [InlineKeyboardButton("My Subscription", callback_data="my_info")],
+        [InlineKeyboardButton("Client List", callback_data="list_clients")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "یکی از گزینه‌های زیر را انتخاب کنید:",
+        "Welcome to 3x-ui Bot!\n"
+        "Choose an option below:",
         reply_markup=reply_markup,
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "دستورات موجود:\n"
-        "/start - شروع و نمایش منو\n"
-        "/info - نمایش اطلاعات اشتراک\n"
-        "/clients - لیست کلاینت‌ها\n"
-        "/help - راهنما"
+        "Available commands:\n"
+        "/start - Show main menu\n"
+        "/info - Show inbound info\n"
+        "/clients - List all clients\n"
+        "/help - Help"
     )
 
 
@@ -77,23 +77,23 @@ async def show_my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         inbounds = p.get_inbounds()
 
         if not inbounds:
-            await update.message.reply_text("هیچ اینبانتی یافت نشد.")
+            await update.message.reply_text("No inbounds found.")
             return
 
-        text = "اطلاعات اینبانت‌ها:\n\n"
+        text = "Inbound Information:\n\n"
         for inbound in inbounds:
             client_count = len(inbound.get("clientStats", []))
             text += (
                 f"ID: {inbound.get('id')}\n"
-                f"پروتکل: {inbound.get('protocol')}\n"
-                f"پورت: {inbound.get('port')}\n"
-                f"تعداد کلاینت: {client_count}\n"
+                f"Protocol: {inbound.get('protocol')}\n"
+                f"Port: {inbound.get('port')}\n"
+                f"Clients: {client_count}\n"
                 f"---\n"
             )
 
         await update.message.reply_text(text)
     except Exception as e:
-        await update.message.reply_text(f"خطا: {e}")
+        await update.message.reply_text(f"Error: {e}")
 
 
 async def show_my_info_callback(query, context):
@@ -102,26 +102,26 @@ async def show_my_info_callback(query, context):
         inbounds = p.get_inbounds()
 
         if not inbounds:
-            await query.edit_message_text("هیچ اینبانتی یافت نشد.")
+            await query.edit_message_text("No inbounds found.")
             return
 
-        text = "اطلاعات اینبانت‌ها:\n\n"
+        text = "Inbound Information:\n\n"
         for inbound in inbounds:
             client_count = len(inbound.get("clientStats", []))
             text += (
                 f"ID: {inbound.get('id')}\n"
-                f"پروتکل: {inbound.get('protocol')}\n"
-                f"پورت: {inbound.get('port')}\n"
-                f"تعداد کلاینت: {client_count}\n"
+                f"Protocol: {inbound.get('protocol')}\n"
+                f"Port: {inbound.get('port')}\n"
+                f"Clients: {client_count}\n"
                 f"---\n"
             )
 
-        keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
+        keyboard = [[InlineKeyboardButton("Back", callback_data="back_to_menu")]]
         await query.edit_message_text(
             text, reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:
-        await query.edit_message_text(f"خطا: {e}")
+        await query.edit_message_text(f"Error: {e}")
 
 
 async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -129,11 +129,11 @@ async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         p = get_panel()
         inbounds = p.get_inbounds()
 
-        text = "لیست کلاینت‌ها:\n\n"
+        text = "Client List:\n\n"
         for inbound in inbounds:
             settings = p._parse_settings(inbound.get("settings", ""))
             for client in settings.get("clients", []):
-                email = client.get("email", "نامشخص")
+                email = client.get("email", "Unknown")
                 stats = None
                 for cs in inbound.get("clientStats", []):
                     if cs.get("email") == email:
@@ -142,19 +142,19 @@ async def show_clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 up = format_bytes(stats.get("up", 0)) if stats else "0"
                 down = format_bytes(stats.get("down", 0)) if stats else "0"
-                expiry = format_expiry(client.get("expiry")) if client.get("expiry") else "نامحدود"
+                expiry = format_expiry(client.get("expiry")) if client.get("expiry") else "Unlimited"
 
                 text += (
-                    f"نام: {email}\n"
-                    f"آپلود: {up}\n"
-                    f"دانلود: {down}\n"
-                    f"انقضا: {expiry}\n"
+                    f"Name: {email}\n"
+                    f"Upload: {up}\n"
+                    f"Download: {down}\n"
+                    f"Expiry: {expiry}\n"
                     f"---\n"
                 )
 
         await update.message.reply_text(text)
     except Exception as e:
-        await update.message.reply_text(f"خطا: {e}")
+        await update.message.reply_text(f"Error: {e}")
 
 
 async def show_clients_list_callback(query, context):
@@ -166,19 +166,19 @@ async def show_clients_list_callback(query, context):
         for inbound in inbounds:
             settings = p._parse_settings(inbound.get("settings", ""))
             for client in settings.get("clients", []):
-                email = client.get("email", "نامشخص")
+                email = client.get("email", "Unknown")
                 buttons.append(
                     [InlineKeyboardButton(email, callback_data=f"client_{email}")]
                 )
 
-        buttons.append([InlineKeyboardButton("بازگشت", callback_data="back_to_menu")])
+        buttons.append([InlineKeyboardButton("Back", callback_data="back_to_menu")])
 
-        text = "یک کلاینت را انتخاب کنید:\n"
+        text = "Select a client:\n"
         await query.edit_message_text(
             text, reply_markup=InlineKeyboardMarkup(buttons)
         )
     except Exception as e:
-        await query.edit_message_text(f"خطا: {e}")
+        await query.edit_message_text(f"Error: {e}")
 
 
 async def show_client_details_callback(query, email, context):
@@ -187,7 +187,7 @@ async def show_client_details_callback(query, email, context):
         result = p.find_client_by_email(email)
 
         if not result:
-            await query.edit_message_text(f"کلاینت {email} یافت نشد.")
+            await query.edit_message_text(f"Client {email} not found.")
             return
 
         client = result["client"]
@@ -196,40 +196,39 @@ async def show_client_details_callback(query, email, context):
 
         up = format_bytes(stats.get("up", 0)) if stats else "0"
         down = format_bytes(stats.get("down", 0)) if stats else "0"
-        total = up + " / " + down
-        expiry = format_expiry(client.get("expiry")) if client.get("expiry") else "نامحدود"
-        limit = format_bytes(client.get("limit", 0)) if client.get("limit") else "نامحدود"
+        expiry = format_expiry(client.get("expiry")) if client.get("expiry") else "Unlimited"
+        limit = format_bytes(client.get("limit", 0)) if client.get("limit") else "Unlimited"
 
         text = (
-            f"جزئیات کلاینت: {email}\n\n"
-            f"پروتکل: {inbound.get('protocol')}\n"
-            f"پورت: {inbound.get('port')}\n"
-            f"آپلود: {up}\n"
-            f"دانلود: {down}\n"
-            f"محدودیت ترافیک: {limit}\t\n"
-            f"تاریخ انقضا: {expiry}\n"
+            f"Client Details: {email}\n\n"
+            f"Protocol: {inbound.get('protocol')}\n"
+            f"Port: {inbound.get('port')}\n"
+            f"Upload: {up}\n"
+            f"Download: {down}\n"
+            f"Traffic Limit: {limit}\n"
+            f"Expiry Date: {expiry}\n"
         )
 
         keyboard = [
-            [InlineKeyboardButton("بازگشت", callback_data="list_clients")],
-            [InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")],
+            [InlineKeyboardButton("Back to List", callback_data="list_clients")],
+            [InlineKeyboardButton("Main Menu", callback_data="back_to_menu")],
         ]
         await query.edit_message_text(
             text, reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:
-        await query.edit_message_text(f"خطا: {e}")
+        await query.edit_message_text(f"Error: {e}")
 
 
 async def back_to_menu(query, context):
     keyboard = [
-        [InlineKeyboardButton("اطلاعات اشتراک من", callback_data="my_info")],
-        [InlineKeyboardButton("لیست کلاینت‌ها", callback_data="list_clients")],
+        [InlineKeyboardButton("My Subscription", callback_data="my_info")],
+        [InlineKeyboardButton("Client List", callback_data="list_clients")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "یکی از گزینه‌های زیر را انتخاب کنید:",
+        "Welcome to 3x-ui Bot!\n"
+        "Choose an option below:",
         reply_markup=reply_markup,
     )
 

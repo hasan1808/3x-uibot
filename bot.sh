@@ -5,15 +5,15 @@ INSTALL_DIR="/opt/3x-ui-bot"
 
 case "$1" in
     start)
-        echo "استارت ربات..."
+        echo "Starting bot..."
         systemctl start $SERVICE_NAME
         ;;
     stop)
-        echo "توقف ربات..."
+        echo "Stopping bot..."
         systemctl stop $SERVICE_NAME
         ;;
     restart)
-        echo "ریستارت ربات..."
+        echo "Restarting bot..."
         systemctl restart $SERVICE_NAME
         ;;
     status)
@@ -26,7 +26,7 @@ case "$1" in
         nano $INSTALL_DIR/.env
         ;;
     *)
-        echo "استفاده: $0 {start|stop|restart|status|logs|config}"
+        echo "Usage: $0 {start|stop|restart|status|logs|config}"
         exit 1
         ;;
 esac
