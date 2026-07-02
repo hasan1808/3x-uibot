@@ -70,11 +70,22 @@ if __name__ == "__main__":
 
     print("Database: " + db_path)
 
-    token = get_bot_token()
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    existing_token = ""
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("TELEGRAM_BOT_TOKEN="):
+                    val = line.strip().split("=", 1)
+                    if len(val) > 1 and val[1]:
+                        existing_token = val[1]
 
-    with open(env_path, "w") as f:
-        f.write("TELEGRAM_BOT_TOKEN=" + token)
+    db_token = get_bot_token()
+    token = existing_token or db_token
+
+    if not existing_token:
+        with open(env_path, "w") as f:
+            f.write("TELEGRAM_BOT_TOKEN=" + token)
 
     if token:
         print("Token loaded: " + token[:15] + "...")
