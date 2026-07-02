@@ -53,13 +53,10 @@ def get_env_content():
         return "TELEGRAM_BOT_TOKEN=\nPANEL_URL=http://localhost:2053\nPANEL_USERNAME=admin\nPANEL_PASSWORD="
 
     config, tables = read_settings_table(db_path)
-    print("Database: " + db_path)
-    print("Tables: " + str(tables))
-    print("Settings found: " + str(list(config.keys())))
 
-    bot_token = config.get("telegramBotToken", "")
+    bot_token = config.get("tgBotToken", "")
     if not bot_token:
-        bot_token = config.get("bot_token", "")
+        bot_token = config.get("telegramBotToken", "")
     if not bot_token:
         for key in config:
             if "token" in key.lower() and config[key] and len(config[key]) > 10:
@@ -68,11 +65,6 @@ def get_env_content():
 
     username = config.get("username", "admin")
     password = config.get("password", "")
-
-    if bot_token:
-        print("Bot token found: " + bot_token[:10] + "...")
-    else:
-        print("No bot token found")
 
     lines = [
         "TELEGRAM_BOT_TOKEN=" + bot_token,
@@ -85,6 +77,12 @@ def get_env_content():
 
 
 if __name__ == "__main__":
-    print("Scanning for 3x-ui panel settings...")
+    content = get_env_content()
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+
+    with open(env_path, "w") as f:
+        f.write(content)
+
+    print(".env file created at: " + env_path)
     print("")
-    print(get_env_content())
+    print(content.replace("PANEL_PASSWORD=", "PANEL_PASSWORD=***"))
