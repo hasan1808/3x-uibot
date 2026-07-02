@@ -20,36 +20,22 @@ def find_database():
     return None
 
 
-def read_all_settings(db_path):
+def read_settings_table(db_path):
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
+        config = {}
+
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = [row[0] for row in cursor.fetchall()]
 
-        config = {}
-
-        for table in tables:
-            try:
-                cursor.execute("PRAGMA table_info(" + table + ");")
-                columns = [col[1] for col in cursor.fetchall()]
-
-                cursor.execute("SELECT * FROM " + table + ";")
-                rows = cursor.fetchall()
-
-                for row in rows:
-                    for i, col in enumerate(columns):
-                        if i < len(row):
-                            val = str(row[i]) if row[i] else ""
-                            if "token" in col.lower() or "bot" in col.lower():
-                                config[col] = val
-                            elif col.lower() in ["username", "password"]:
-                                config[col] = val
-                            elif col.lower() == "key" and i + 1 < len(row):
-                                config[str(row[i])] = str(row[i + 1]) if row[i + 1] else ""
-            except Exception:
-                continue
+        if "settings" in tables:
+            cursor.execute("SELECT key, value FROM settings;")
+            for row in cursor.fetchall():
+                key, value = row
+                if key and value:
+                    config[str(key)] = str(value)
 
         conn.close()
         return config, tables
@@ -59,27 +45,34 @@ def read_all_settings(db_path):
         return {}, []
 
 
-def generate_env_file():
+def get_env_content():
     db_path = find_database()
 
     if not db_path:
         print("No database found")
         return "TELEGRAM_BOT_TOKEN=\nPANEL_URL=http://localhost:2053\nPANEL_USERNAME=admin\nPANEL_PASSWORD="
 
-    config, tables = read_all_settings(db_path)
+    config, tables = read_settings_table(db_path)
     print("Database: " + db_path)
     print("Tables: " + str(tables))
-    print("Found keys: " + str(list(config.keys())))
+    print("Settings found: " + str(list(config.keys())))
 
-    bot_token = ""
-    for key in config:
-        if "bot_token" in key.lower() or "token" in key.lower():
-            if config[key] and len(config[key]) > 10:
+    bot_token = config.get("telegramBotToken", "")
+    if not bot_token:
+        bot_token = config.get("bot_token", "")
+    if not bot_token:
+        for key in config:
+            if "token" in key.lower() and config[key] and len(config[key]) > 10:
                 bot_token = config[key]
                 break
 
     username = config.get("username", "admin")
     password = config.get("password", "")
+
+    if bot_token:
+        print("Bot token found: " + bot_token[:10] + "...")
+    else:
+        print("No bot token found")
 
     lines = [
         "TELEGRAM_BOT_TOKEN=" + bot_token,
@@ -92,26 +85,6 @@ def generate_env_file():
 
 
 if __name__ == "__main__":
-    print("Scanning for 3x-ui configuration...")
-
-    db_path = find_database()
-
-    if db_path:
-        print("Database found: " + db_path)
-    else:
-        print("No database found")
-
-    bot_token = ""
-    config, tables = read_all_settings(db_path) if db_path else ({}, [])
-    for key in config:
-        if "bot_token" in key.lower() and config[key] and len(config[key]) > 10:
-            bot_token = config[key]
-            break
-
-    if bot_token:
-        print("Bot token found: " + bot_token[:10] + "...")
-    else:
-        print("No bot token found in database")
-
-    print("\nGenerated .env content:")
-    print(generate_env_file())
+    print("Scanning for 3x-ui panel settings...")
+    print("")
+    print(get_env_content())
