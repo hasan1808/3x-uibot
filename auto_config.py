@@ -1,17 +1,10 @@
 import sqlite3
 import os
-import yaml
-import json
 
 PANEL_DB_PATHS = [
     "/etc/x-ui/x-ui.db",
     "/usr/local/x-ui/x-ui.db",
     "/opt/x-ui/x-ui.db",
-]
-
-PANEL_CONFIG_PATHS = [
-    "/etc/x-ui/x-ui.yml",
-    "/usr/local/x-ui/x-ui.yml",
 ]
 
 WEB_DB_PATHS = [
@@ -27,14 +20,7 @@ def find_database():
     return None
 
 
-def find_config():
-    for path in PANEL_CONFIG_PATHS:
-        if os.path.exists(path):
-            return path
-    return None
-
-
-def read_from_database(db_path):
+def read_all_settings(db_path):
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -44,107 +30,63 @@ def read_from_database(db_path):
 
         config = {}
 
-        if "settings" in tables:
-            cursor.execute("SELECT key, value FROM settings;")
-            for row in cursor.fetchall():
-                key, value = row
-                config[key] = value
+        for table in tables:
+            try:
+                cursor.execute("PRAGMA table_info(" + table + ");")
+                columns = [col[1] for col in cursor.fetchall()]
 
-        if "clients" in tables:
-            cursor.execute("SELECT email, telegram_id, sub_id FROM clients LIMIT 1;")
-            row = cursor.fetchone()
-            if row:
-                config["client_email"] = row[0]
-                config["telegram_id"] = row[1]
-                config["sub_id"] = row[2]
+                cursor.execute("SELECT * FROM " + table + ";")
+                rows = cursor.fetchall()
+
+                for row in rows:
+                    for i, col in enumerate(columns):
+                        if i < len(row):
+                            val = str(row[i]) if row[i] else ""
+                            if "token" in col.lower() or "bot" in col.lower():
+                                config[col] = val
+                            elif col.lower() in ["username", "password"]:
+                                config[col] = val
+                            elif col.lower() == "key" and i + 1 < len(row):
+                                config[str(row[i])] = str(row[i + 1]) if row[i + 1] else ""
+            except Exception:
+                continue
 
         conn.close()
-        return config
+        return config, tables
 
     except Exception as e:
-        print(f"Error reading database: {e}")
-        return {}
-
-
-def read_from_config(config_path):
-    try:
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-        return config if config else {}
-    except Exception as e:
-        print(f"Error reading config: {e}")
-        return {}
-
-
-def get_panel_url():
-    xray_configs = [
-        "/etc/x-ui/xray_config.json",
-        "/usr/local/x-ui/xray_config.json",
-    ]
-    for path in xray_configs:
-        if os.path.exists(path):
-            try:
-                with open(path, "r") as f:
-                    config = json.load(f)
-                for inbound in config.get("inbounds", []):
-                    port = inbound.get("port")
-                    if port:
-                        return f"http://localhost:{port}"
-            except:
-                pass
-    return None
-
-
-def find_bot_token():
-    db_path = find_database()
-    if db_path:
-        config = read_from_database(db_path)
-        for key in ["bot_token", "telegram_bot_token", "botToken"]:
-            if key in config and config[key]:
-                return config[key]
-    return None
-
-
-def find_panel_credentials():
-    db_path = find_database()
-    if db_path:
-        config = read_from_database(db_path)
-        username = None
-        password = None
-        for key in ["username", "panel_username", "login_user"]:
-            if key in config and config[key]:
-                username = config[key]
-                break
-        for key in ["password", "panel_password", "login_password"]:
-            if key in config and config[key]:
-                password = config[key]
-                break
-        return username, password
-    return None, None
+        print("Error reading database: " + str(e))
+        return {}, []
 
 
 def generate_env_file():
-    bot_token = find_bot_token()
-    username, password = find_panel_credentials()
+    db_path = find_database()
 
-    lines = []
+    if not db_path:
+        print("No database found")
+        return "TELEGRAM_BOT_TOKEN=\nPANEL_URL=http://localhost:2053\nPANEL_USERNAME=admin\nPANEL_PASSWORD="
 
-    if bot_token:
-        lines.append(f"TELEGRAM_BOT_TOKEN={bot_token}")
-    else:
-        lines.append("TELEGRAM_BOT_TOKEN=")
+    config, tables = read_all_settings(db_path)
+    print("Database: " + db_path)
+    print("Tables: " + str(tables))
+    print("Found keys: " + str(list(config.keys())))
 
-    lines.append("PANEL_URL=http://localhost:2053")
+    bot_token = ""
+    for key in config:
+        if "bot_token" in key.lower() or "token" in key.lower():
+            if config[key] and len(config[key]) > 10:
+                bot_token = config[key]
+                break
 
-    if username:
-        lines.append(f"PANEL_USERNAME={username}")
-    else:
-        lines.append("PANEL_USERNAME=admin")
+    username = config.get("username", "admin")
+    password = config.get("password", "")
 
-    if password:
-        lines.append(f"PANEL_PASSWORD={password}")
-    else:
-        lines.append("PANEL_PASSWORD=")
+    lines = [
+        "TELEGRAM_BOT_TOKEN=" + bot_token,
+        "PANEL_URL=http://localhost:2053",
+        "PANEL_USERNAME=" + username,
+        "PANEL_PASSWORD=" + password,
+    ]
 
     return "\n".join(lines)
 
@@ -153,21 +95,21 @@ if __name__ == "__main__":
     print("Scanning for 3x-ui configuration...")
 
     db_path = find_database()
-    config_path = find_config()
 
     if db_path:
-        print(f"Database found: {db_path}")
+        print("Database found: " + db_path)
     else:
         print("No database found")
 
-    if config_path:
-        print(f"Config found: {config_path}")
-    else:
-        print("No config found")
+    bot_token = ""
+    config, tables = read_all_settings(db_path) if db_path else ({}, [])
+    for key in config:
+        if "bot_token" in key.lower() and config[key] and len(config[key]) > 10:
+            bot_token = config[key]
+            break
 
-    bot_token = find_bot_token()
     if bot_token:
-        print(f"Bot token found: {bot_token[:10]}...")
+        print("Bot token found: " + bot_token[:10] + "...")
     else:
         print("No bot token found in database")
 
