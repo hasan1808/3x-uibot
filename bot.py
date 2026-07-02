@@ -467,8 +467,10 @@ async def back_to_menu(query, context):
 
 
 def main():
-    import asyncio
     import time
+
+    logger.info("Bot is starting... waiting 15s for old session to expire...")
+    time.sleep(15)
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -480,29 +482,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    logger.info("Bot is starting...")
-
-    # Try to force-close any existing polling session
-    try:
-        asyncio.run(app.bot.get_updates(offset=-1, timeout=1))
-    except Exception:
-        pass
-    time.sleep(2)
-
-    # Start polling with retry on conflict
-    for attempt in range(10):
-        try:
-            app.run_polling(drop_pending_updates=True)
-            return
-        except Exception as e:
-            if "Conflict" in str(e) or "terminated" in str(e):
-                wait = min(30, 5 * (attempt + 1))
-                logger.warning("Conflict (old bot still alive). Waiting %ss...", wait)
-                time.sleep(wait)
-            else:
-                raise
-
-    logger.error("Bot failed after 10 retries.")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":

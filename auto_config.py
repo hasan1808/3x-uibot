@@ -90,13 +90,15 @@ if __name__ == "__main__":
     if token:
         print("Token loaded: " + token[:15] + "...")
         disable_builtin_bot()
-        print("Fully restarting x-ui to kill old bot...")
+        print("Killing old bot completely...")
         run("systemctl stop x-ui")
         import time
-        time.sleep(3)
-        run("killall -9 x-ui 2>/dev/null || true")
-        run("pkill -f 'x-ui' 2>/dev/null || true")
-        time.sleep(1)
+        time.sleep(2)
+        # Kill ALL x-ui processes
+        run("kill $(pgrep x-ui 2>/dev/null) 2>/dev/null || true")
+        run("kill -9 $(pgrep -f '/usr/local/x-ui' 2>/dev/null) 2>/dev/null || true")
+        time.sleep(25)
+        print("Waiting 25s for Telegram to expire old session...")
         run("systemctl start x-ui")
         print("Done!")
     else:
