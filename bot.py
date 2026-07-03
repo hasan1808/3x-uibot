@@ -16,7 +16,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from config import TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_ID, SERVER_DOMAIN
+from config import TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_ID, SERVER_DOMAIN, SUBSCRIPTION_PORT
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -70,6 +70,10 @@ def format_expiry(ts):
     if not ts or ts == 0:
         return "نامحدود"
     try:
+        # if ts < year 2020 in ms → it's a duration (startAfterFirstUse)
+        if ts < 1600000000000:
+            days = ts / 86400000
+            return "{} روز از اولین اتصال".format(int(days))
         dt = datetime.fromtimestamp(ts / 1000)
         now = datetime.now()
         delta = dt - now
@@ -269,7 +273,7 @@ def get_config_link(client):
 
 def get_subscription_link(client):
     domain = SERVER_DOMAIN or "YOUR_SERVER_IP"
-    port = client["inbound_port"]
+    port = SUBSCRIPTION_PORT if SUBSCRIPTION_PORT else client["inbound_port"]
     sub_id = client.get("sub_id", "")
     if sub_id:
         return "http://{}:{}/sub/{}".format(domain, port, sub_id)
@@ -360,12 +364,13 @@ def create_user_in_db(email, total_gb, expiry_days, inbound_id=None):
         new_uuid = str(uuid_lib.uuid4())
         sub_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
         now_ms = int(datetime.now().timestamp() * 1000)
-        expiry_ms = now_ms + (expiry_days * 86400 * 1000) if expiry_days > 0 else 0
 
         new_client = {
             "comment": "", "created_at": now_ms, "email": email,
-            "enable": True, "expiryTime": expiry_ms, "flow": "",
+            "enable": True, "expiryTime": expiry_days * 86400 * 1000 if expiry_days > 0 else 0,
+            "flow": "",
             "id": new_uuid, "limitIp": 0, "reset": 0,
+            "startAfterFirstUse": True,
             "subId": sub_id, "tgId": 0,
             "totalGB": total_gb * 1073741824, "updated_at": now_ms,
         }
