@@ -579,14 +579,18 @@ async def show_main_menu(message):
     ]
     if is_admin(message.chat.id):
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
+        keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
+        keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
     await message.reply_text("به ربات مدیریت 3x-ui خوش آمدید!", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "/start - منوی اصلی\n/info - اطلاعات اینباندها\n/clients - لیست کاربران\n"
-        "/search <متن> - جستجوی کاربر\n/help - راهنما\n\n"
-        "جستجو با: نام کاربری، UUID یا لینک کانفیگ"
+        "/search <متن> - جستجوی کاربر\n/backup - بکاپ دیتابیس (ادمین)\n"
+        "/expiring - کاربران رو به اتمام (ادمین)\n/help - راهنما\n\n"
+        "جستجو با: نام کاربری، UUID یا لینک کانفیگ\n"
+        "🤖 اعلان خودکار انقضا هر روز ساعت ۸ صبح ارسال می‌شود."
     )
 
 
@@ -622,6 +626,52 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("مثال: /search example@email.com")
         return
     await show_search_results(update.message, " ".join(context.args))
+
+
+async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("فقط ادمین!")
+        return
+    await update.message.reply_text("در حال تهیه بکاپ...")
+    db_path = find_database()
+    if not db_path:
+        await update.message.reply_text("دیتابیس پیدا نشد!")
+        return
+    from shutil import copy2
+    backup_path = db_path + ".backup.tmp"
+    try:
+        copy2(db_path, backup_path)
+        with open(backup_path, "rb") as f:
+            await update.message.reply_document(document=f, filename="x-ui.db.backup")
+        os.remove(backup_path)
+    except Exception as e:
+        await update.message.reply_text("خطا در بکاپ: {}".format(e))
+
+
+async def expiring_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("فقط ادمین!")
+        return
+    clients = get_all_clients()
+    now_ms = int(datetime.now().timestamp() * 1000)
+    expiring = []
+    for c in clients:
+        e = c["expiry"]
+        if e == 0:
+            continue
+        if e < 1600000000000:
+            continue
+        remaining_days = (e - now_ms) / 86400000
+        if 0 < remaining_days <= 7:
+            expiring.append((remaining_days, c))
+    expiring.sort(key=lambda x: x[0])
+    if not expiring:
+        await update.message.reply_text("هیچ کاربری در حال اتمام نیست.")
+        return
+    text = "کاربران در حال اتمام (۷ روز آینده):\n\n"
+    for days, c in expiring:
+        text += "{} - {} روز\n".format(c["email"], int(days))
+    await update.message.reply_text(text)
 
 
 PAGE_SIZE = 15
@@ -774,6 +824,49 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("خطا در حذف کاربر!",
                                           reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
+    elif data == "backup_db":
+        if not is_admin(query.from_user.id):
+            return
+        await query.edit_message_text("در حال تهیه بکاپ...")
+        db_path = find_database()
+        if not db_path:
+            await query.edit_message_text("دیتابیس پیدا نشد!")
+            return
+        from shutil import copy2
+        backup_path = db_path + ".backup.tmp"
+        try:
+            copy2(db_path, backup_path)
+            with open(backup_path, "rb") as f:
+                await query.message.reply_document(document=f, filename="x-ui.db.backup")
+            os.remove(backup_path)
+            await query.message.reply_text("بکاپ با موفقیت ارسال شد.",
+                                           reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
+        except Exception as e:
+            await query.edit_message_text("خطا در بکاپ: {}".format(e))
+    elif data == "expiring":
+        if not is_admin(query.from_user.id):
+            return
+        clients = get_all_clients()
+        now_ms = int(datetime.now().timestamp() * 1000)
+        expiring = []
+        for c in clients:
+            e = c["expiry"]
+            if e == 0 or e >= 1600000000000:
+                continue
+            remaining_days = (e - now_ms) / 86400000
+            if 0 < remaining_days <= 7:
+                expiring.append((remaining_days, c))
+        expiring.sort(key=lambda x: x[0])
+        if not expiring:
+            await query.edit_message_text("هیچ کاربری در حال اتمام نیست.",
+                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
+            return
+        text = "کاربران در حال اتمام (۷ روز آینده):\n\n"
+        for days, c in expiring:
+            text += "{} - {} روز\n".format(c["email"], int(days))
+        text += "\n(جهت تنظیم پیام اعلان از /notify_config استفاده کنید)"
+        await query.edit_message_text(text,
+                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
 
 
 async def show_search_results(message, query):
@@ -937,7 +1030,35 @@ async def back_to_menu(query, context):
     ]
     if is_admin(query.from_user.id):
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
+        keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
+        keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
     await query.edit_message_text("به ربات مدیریت 3x-ui خوش آمدید!", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+NOTIFY_DAYS = [3, 1]
+
+
+async def check_expiry(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Checking expiry notifications...")
+    clients = get_all_clients()
+    now_ms = int(datetime.now().timestamp() * 1000)
+    for c in clients:
+        tg_id = c.get("tg_id", 0)
+        if not tg_id:
+            continue
+        e = c["expiry"]
+        if e == 0 or e < 1600000000000:
+            continue
+        remaining = (e - now_ms) / 86400000
+        for nd in NOTIFY_DAYS:
+            if int(remaining) == nd:
+                try:
+                    msg = "⚠️ هشدار اشتراک\n\nکاربر: {}\n{} روز تا اتمام اشتراک باقی است.".format(c["email"], nd)
+                    await context.bot.send_message(chat_id=tg_id, text=msg)
+                    logger.info("Notified %s (%d days left)", c["email"], nd)
+                except Exception as ex:
+                    logger.warning("Failed to notify %s: %s", c["email"], ex)
+                break
 
 
 def main():
@@ -952,8 +1073,14 @@ def main():
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("clients", clients_command))
     app.add_handler(CommandHandler("search", search_command))
+    app.add_handler(CommandHandler("backup", backup_command))
+    app.add_handler(CommandHandler("expiring", expiring_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    job_queue = app.job_queue
+    if job_queue:
+        job_queue.run_daily(check_expiry, time=datetime.strptime("08:00", "%H:%M").time(), name="expiry_check")
 
     app.run_polling(drop_pending_updates=True)
 
