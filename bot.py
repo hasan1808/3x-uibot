@@ -366,7 +366,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_my_info_callback(query, context)
     elif query.data == "search_email":
         context.user_data["awaiting_email"] = True
-        await query.edit_message_text("ایمیل، UUID یا لینک کانفیگ را بفرستید:")
+        await query.edit_message_text("UUID یا لینک کانفیگ را بفرستید:")
     elif query.data == "list_clients":
         await show_clients_list_callback(query, context)
     elif query.data == "back_to_menu":
