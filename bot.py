@@ -623,6 +623,7 @@ async def show_main_menu(message):
     if is_admin(message.chat.id):
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
         keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
+        keyboard.append([InlineKeyboardButton("📊 آمار", callback_data="stats")])
         keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
         keyboard.append([InlineKeyboardButton("⚙ تنظیمات", callback_data="settings")])
     await message.reply_text("به ربات مدیریت 3x-ui خوش آمدید!", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -878,6 +879,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                           reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("مشاهده کاربر", callback_data="client_" + email)]]))
         else:
             await query.edit_message_text("خطا!")
+    elif data == "stats":
+        if not is_admin(query.from_user.id):
+            return
+        s = get_stats()
+        text = (
+            "📊 آمار سرور\n\n"
+            "🔹 کل کاربران: {}\n"
+            "🔹 فعال: {}\n"
+            "🔹 غیرفعال: {}\n"
+            "🔹 منقضی شده: {}\n"
+            "🔹 حجم مصرفی کل: {}\n"
+            "🔹 حجم محدودیت کل: {}\n"
+        ).format(s["total"], s["enabled"], s["disabled"], s["expired"],
+                 format_bytes(s["total_used"]), format_bytes(s["total_limit"]))
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
     elif data == "backup_db":
         if not is_admin(query.from_user.id):
             return
@@ -1192,6 +1208,7 @@ async def back_to_menu(query, context):
     if is_admin(query.from_user.id):
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
         keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
+        keyboard.append([InlineKeyboardButton("📊 آمار", callback_data="stats")])
         keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
         keyboard.append([InlineKeyboardButton("⚙ تنظیمات", callback_data="settings")])
     await query.edit_message_text("به ربات مدیریت 3x-ui خوش آمدید!", reply_markup=InlineKeyboardMarkup(keyboard))
