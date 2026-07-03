@@ -1135,8 +1135,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 await update.message.reply_text(msg)
 
-                qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" + conf_link
-                await update.message.reply_photo(photo=qr_url, caption="QR کد")
+                qr_config = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" + conf_link
+                await update.message.reply_photo(photo=qr_config, caption="QR کد کانفیگ - " + email)
+
+                if sub_link:
+                    qr_sub = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" + sub_link
+                    await update.message.reply_photo(photo=qr_sub, caption="QR کد ساب - " + email)
 
                 keyboard = [[InlineKeyboardButton("منوی اصلی", callback_data="back_to_menu")]]
                 await update.message.reply_text("از دکمه زیر بازگردید:", reply_markup=InlineKeyboardMarkup(keyboard))
