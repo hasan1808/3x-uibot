@@ -540,7 +540,8 @@ async def show_client_detail(query_or_msg, email, is_callback=True):
         [InlineKeyboardButton("QR کد", callback_data="qr_" + email)],
     ]
 
-    if is_admin(query_or_msg.from_user.id if is_callback else query_or_msg.chat.id):
+    user_id = query_or_msg.from_user.id if is_callback else query_or_msg.chat.id
+    if is_admin(user_id):
         s = "غیرفعال" if client["enable"] else "فعال"
         buttons.append([
             InlineKeyboardButton("تغییر حجم", callback_data="vol_" + email),
@@ -553,6 +554,8 @@ async def show_client_detail(query_or_msg, email, is_callback=True):
         buttons.append([
             InlineKeyboardButton("حذف کاربر", callback_data="del_" + email),
         ])
+    elif client.get("tg_id") != user_id:
+        buttons.append([InlineKeyboardButton("➕ افزودن به حساب من", callback_data="link_" + email)])
 
     buttons.append([InlineKeyboardButton("بازگشت", callback_data="back_to_menu")])
 
@@ -575,9 +578,9 @@ async def show_main_menu(message):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
         [InlineKeyboardButton("جستجوی خودکار", callback_data="search_email")],
-        [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     if is_admin(message.chat.id):
+        keyboard.append([InlineKeyboardButton("لیست کاربران", callback_data="list_clients")])
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
         keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
         keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
@@ -824,6 +827,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("خطا در حذف کاربر!",
                                           reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
+    elif data.startswith("link_"):
+        email = data.replace("link_", "")
+        user_id = query.from_user.id
+        if update_client_field(email, "tgId", user_id):
+            await query.edit_message_text("✅ کاربر '{}' به حساب شما اضافه شد.\nاز این پس اعلان‌های انقضا برای شما ارسال می‌شود.".format(email),
+                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("مشاهده کاربر", callback_data="client_" + email)]]))
+        else:
+            await query.edit_message_text("خطا!")
     elif data == "backup_db":
         if not is_admin(query.from_user.id):
             return
@@ -1026,9 +1037,9 @@ async def back_to_menu(query, context):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
         [InlineKeyboardButton("جستجوی خودکار", callback_data="search_email")],
-        [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     if is_admin(query.from_user.id):
+        keyboard.append([InlineKeyboardButton("لیست کاربران", callback_data="list_clients")])
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
         keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
         keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
