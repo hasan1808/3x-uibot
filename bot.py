@@ -281,11 +281,12 @@ def get_all_clients():
 
 
 def get_config_link(client):
+    from urllib.parse import quote
     domain = SERVER_DOMAIN or "YOUR_SERVER_IP"
     uuid = client["uuid"]
     port = client["inbound_port"]
-    email = client["email"]
-    return "vless://{}@{}:{}?type=tcp&security=none&#{}".format(uuid, domain, port, email)
+    name = quote(client["email"], safe='')
+    return "vless://{}@{}:{}?type=tcp&security=none#{}".format(uuid, domain, port, name)
 
 
 def get_panel_setting(key):
