@@ -176,16 +176,12 @@ def search_clients(query):
             sub_id = (c.get("subId") or "").lower()
             comment = (c.get("comment") or "").lower()
 
-            search_in = [email, uid, sub_id, comment]
-            if uuid_from_config:
-                search_in.append(uuid_from_config)
-
-            for field in search_in:
-                if field == query or (uuid_from_config and field == uuid_from_config):
-                    return [build_client(c, inbound)]
-                if query in field:
-                    results.append(build_client(c, inbound))
-                    break
+            if email == query or uid == query or sub_id == query or comment == query:
+                return [build_client(c, inbound)]
+            if uuid_from_config and uuid_from_config == uid:
+                return [build_client(c, inbound)]
+            if query in email or query in uid or query in sub_id or query in comment:
+                results.append(build_client(c, inbound))
 
     return results
 
