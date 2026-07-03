@@ -19,7 +19,9 @@ cp bot.sh $INSTALL_DIR/
 chmod +x $INSTALL_DIR/bot.sh
 
 echo "[3/6] Installing Python and dependencies..."
-apt-get update -qq
+kill -9 $(pgrep -f apt-get) 2>/dev/null || true
+sleep 2
+apt-get update -qq 2>/dev/null || true
 apt-get install -y -qq python3 python3-pip python3.8-venv sqlite3 2>/dev/null || true
 apt-get install -y -qq python3-venv 2>/dev/null || true
 
@@ -54,7 +56,16 @@ if [ -z "$TOKEN" ]; then
     read -p "  Bot token: " TOKEN
 fi
 
-echo "TELEGRAM_BOT_TOKEN=$TOKEN" > $INSTALL_DIR/.env
+echo ""
+echo "  Enter your Telegram user ID (admin)."
+echo "  (Use @userinfobot in Telegram to get your ID)"
+read -p "  Admin Telegram ID: " ADMIN_ID
+
+cat > $INSTALL_DIR/.env << EOF
+TELEGRAM_BOT_TOKEN=$TOKEN
+ADMIN_TELEGRAM_ID=$ADMIN_ID
+EOF
+
 chmod 600 $INSTALL_DIR/.env
 echo "  .env file created"
 
