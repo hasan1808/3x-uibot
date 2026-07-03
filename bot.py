@@ -381,7 +381,7 @@ def create_user_in_db(email, total_gb, expiry_days, inbound_id=None):
         return {
             "email": email, "uuid": new_uuid, "sub_id": sub_id,
             "port": port, "inbound_port": port, "protocol": protocol,
-            "total_gb": total_gb, "expiry_days": days,
+            "total_gb": total_gb, "expiry_days": expiry_days,
             "inbound_id": inbound_id_actual,
         }
     except Exception as e:
