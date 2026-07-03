@@ -24,11 +24,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_settings.json")
+
 DB_PATHS = [
     "/etc/x-ui/x-ui.db",
     "/usr/local/x-ui/x-ui.db",
     "/opt/x-ui/x-ui.db",
 ]
+
+
+def load_settings():
+    if os.path.exists(SETTINGS_PATH):
+        try:
+            with open(SETTINGS_PATH, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {"force_channel": "", "auto_backup": False, "notify_days": [3, 1]}
+
+
+def save_settings(s):
+    with open(SETTINGS_PATH, "w") as f:
+        json.dump(s, f, indent=2)
 
 
 def find_database():
@@ -567,6 +584,15 @@ async def show_client_detail(query_or_msg, email, is_callback=True):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if not await check_force_channel(user_id, context):
+        settings = load_settings()
+        ch = settings.get("force_channel", "")
+        await update.message.reply_text(
+            "🔒 برای استفاده از ربات باید عضو کانال زیر شوید:\n"
+            "https://t.me/{}".format(ch.lstrip("@")),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("عضویت در کانال", url="https://t.me/" + ch.lstrip("@"))]])
+        )
+        return
     client = search_client_by_telegram_id(user_id)
     if client:
         await show_client_detail(update.message, client["email"], is_callback=False)
@@ -574,16 +600,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_menu(update.message)
 
 
+async def check_force_channel(user_id, context):
+    settings = load_settings()
+    ch = settings.get("force_channel", "")
+    if not ch:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id="@" + ch.lstrip("@"), user_id=user_id)
+        if member.status in ("left", "kicked"):
+            return False
+        return True
+    except:
+        return True
+
+
 async def show_main_menu(message):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
         [InlineKeyboardButton("جستجوی خودکار", callback_data="search_email")],
+        [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     if is_admin(message.chat.id):
-        keyboard.append([InlineKeyboardButton("لیست کاربران", callback_data="list_clients")])
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
         keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
         keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
+        keyboard.append([InlineKeyboardButton("⚙ تنظیمات", callback_data="settings")])
     await message.reply_text("به ربات مدیریت 3x-ui خوش آمدید!", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -591,7 +632,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "/start - منوی اصلی\n/info - اطلاعات اینباندها\n/clients - لیست کاربران\n"
         "/search <متن> - جستجوی کاربر\n/backup - بکاپ دیتابیس (ادمین)\n"
-        "/expiring - کاربران رو به اتمام (ادمین)\n/help - راهنما\n\n"
+        "/expiring - کاربران رو به اتمام (ادمین)\n/settings - تنظیمات ربات (ادمین)\n"
+        "/help - راهنما\n\n"
         "جستجو با: نام کاربری، UUID یا لینک کانفیگ\n"
         "🤖 اعلان خودکار انقضا هر روز ساعت ۸ صبح ارسال می‌شود."
     )
@@ -878,6 +920,45 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "\n(جهت تنظیم پیام اعلان از /notify_config استفاده کنید)"
         await query.edit_message_text(text,
                                       reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
+    elif data == "settings":
+        if not is_admin(query.from_user.id):
+            return
+        settings = load_settings()
+        ch = settings.get("force_channel", "") or "تنظیم نشده"
+        ab = "فعال" if settings.get("auto_backup") else "غیرفعال"
+        nd = ", ".join(str(d) for d in settings.get("notify_days", [3, 1]))
+        text = (
+            "⚙ تنظیمات ربات\n\n"
+            "🔹 کانال اجباری: {}\n"
+            "🔹 بکاپ خودکار: {}\n"
+            "🔹 روزهای اعلان: {}\n"
+        ).format(ch, ab, nd)
+        buttons = [
+            [InlineKeyboardButton("📢 کانال اجباری", callback_data="set_channel")],
+            [InlineKeyboardButton("📤 بکاپ خودکار", callback_data="set_autobackup")],
+            [InlineKeyboardButton("🔔 روزهای اعلان", callback_data="set_notifydays")],
+            [InlineKeyboardButton("بازگشت", callback_data="back_to_menu")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    elif data == "set_channel":
+        if not is_admin(query.from_user.id):
+            return
+        context.user_data["setting_field"] = "force_channel"
+        await query.edit_message_text("نام کانال را بدون @ وارد کنید (یا خالی برای غیرفعال):")
+    elif data == "set_autobackup":
+        if not is_admin(query.from_user.id):
+            return
+        settings = load_settings()
+        settings["auto_backup"] = not settings.get("auto_backup", False)
+        save_settings(settings)
+        st = "فعال" if settings["auto_backup"] else "غیرفعال"
+        await query.edit_message_text("✅ بکاپ خودکار {} شد.".format(st),
+                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
+    elif data == "set_notifydays":
+        if not is_admin(query.from_user.id):
+            return
+        context.user_data["setting_field"] = "notify_days"
+        await query.edit_message_text("روزهای اعلان را با کاما جدا وارد کنید (مثال: 3,1):")
 
 
 async def show_search_results(message, query):
@@ -930,6 +1011,33 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("خطا!")
 
         return
+
+    # Handle settings input
+    if context.user_data.get("setting_field"):
+        if not is_admin(user_id):
+            context.user_data["setting_field"] = None
+            return
+        field = context.user_data["setting_field"]
+        settings = load_settings()
+        if field == "force_channel":
+            settings["force_channel"] = text.strip()
+            save_settings(settings)
+            context.user_data["setting_field"] = None
+            await update.message.reply_text("✅ کانال اجباری تنظیم شد.",
+                                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
+            return
+        elif field == "notify_days":
+            try:
+                days = [int(x.strip()) for x in text.split(",") if x.strip().isdigit()]
+                settings["notify_days"] = days
+                save_settings(settings)
+                context.user_data["setting_field"] = None
+                await update.message.reply_text("✅ روزهای اعلان تنظیم شد.",
+                                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
+                return
+            except:
+                await update.message.reply_text("فرمت اشتباه. مثال: 3,1")
+                return
 
     # Handle create user flow
     if context.user_data.get("creating_user"):
@@ -1037,20 +1145,46 @@ async def back_to_menu(query, context):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
         [InlineKeyboardButton("جستجوی خودکار", callback_data="search_email")],
+        [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     if is_admin(query.from_user.id):
-        keyboard.append([InlineKeyboardButton("لیست کاربران", callback_data="list_clients")])
         keyboard.append([InlineKeyboardButton("ساخت کاربر جدید", callback_data="new_user")])
         keyboard.append([InlineKeyboardButton("📤 بکاپ دیتابیس", callback_data="backup_db")])
         keyboard.append([InlineKeyboardButton("⏳ کاربران در حال اتمام", callback_data="expiring")])
+        keyboard.append([InlineKeyboardButton("⚙ تنظیمات", callback_data="settings")])
     await query.edit_message_text("به ربات مدیریت 3x-ui خوش آمدید!", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 NOTIFY_DAYS = [3, 1]
 
 
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("فقط ادمین!")
+        return
+    settings = load_settings()
+    ch = settings.get("force_channel", "") or "تنظیم نشده"
+    ab = "فعال" if settings.get("auto_backup") else "غیرفعال"
+    nd = ", ".join(str(d) for d in settings.get("notify_days", [3, 1]))
+    text = (
+        "⚙ تنظیمات ربات\n\n"
+        "🔹 کانال اجباری: {}\n"
+        "🔹 بکاپ خودکار: {}\n"
+        "🔹 روزهای اعلان: {}\n"
+    ).format(ch, ab, nd)
+    buttons = [
+        [InlineKeyboardButton("📢 کانال اجباری", callback_data="set_channel")],
+        [InlineKeyboardButton("📤 بکاپ خودکار", callback_data="set_autobackup")],
+        [InlineKeyboardButton("🔔 روزهای اعلان", callback_data="set_notifydays")],
+        [InlineKeyboardButton("بازگشت", callback_data="back_to_menu")],
+    ]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
 async def check_expiry(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Checking expiry notifications...")
+    settings = load_settings()
+    notify_days = settings.get("notify_days", [3, 1])
     clients = get_all_clients()
     now_ms = int(datetime.now().timestamp() * 1000)
     for c in clients:
@@ -1061,7 +1195,7 @@ async def check_expiry(context: ContextTypes.DEFAULT_TYPE):
         if e == 0 or e < 1600000000000:
             continue
         remaining = (e - now_ms) / 86400000
-        for nd in NOTIFY_DAYS:
+        for nd in notify_days:
             if int(remaining) == nd:
                 try:
                     msg = "⚠️ هشدار اشتراک\n\nکاربر: {}\n{} روز تا اتمام اشتراک باقی است.".format(c["email"], nd)
@@ -1070,6 +1204,27 @@ async def check_expiry(context: ContextTypes.DEFAULT_TYPE):
                 except Exception as ex:
                     logger.warning("Failed to notify %s: %s", c["email"], ex)
                 break
+
+
+async def auto_backup(context: ContextTypes.DEFAULT_TYPE):
+    settings = load_settings()
+    if not settings.get("auto_backup"):
+        return
+    if not ADMIN_TELEGRAM_ID:
+        return
+    db_path = find_database()
+    if not db_path:
+        return
+    from shutil import copy2
+    backup_path = db_path + ".backup.auto"
+    try:
+        copy2(db_path, backup_path)
+        with open(backup_path, "rb") as f:
+            await context.bot.send_document(chat_id=ADMIN_TELEGRAM_ID, document=f, filename="x-ui.db.auto.backup")
+        os.remove(backup_path)
+        logger.info("Auto backup sent to admin")
+    except Exception as e:
+        logger.error("Auto backup error: %s", e)
 
 
 def main():
@@ -1086,12 +1241,14 @@ def main():
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("backup", backup_command))
     app.add_handler(CommandHandler("expiring", expiring_command))
+    app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     job_queue = app.job_queue
     if job_queue:
         job_queue.run_daily(check_expiry, time=datetime.strptime("08:00", "%H:%M").time(), name="expiry_check")
+        job_queue.run_daily(auto_backup, time=datetime.strptime("08:30", "%H:%M").time(), name="auto_backup")
 
     app.run_polling(drop_pending_updates=True)
 
