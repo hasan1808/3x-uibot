@@ -149,10 +149,22 @@ def build_client(c, inbound):
     }
 
 
+def extract_uuid_from_config(config_text):
+    import re
+    text = config_text.strip()
+
+    matched = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', text, re.I)
+    if matched:
+        return matched.group(0).lower()
+    return None
+
+
 def search_clients(query):
     query = query.strip().lower()
     if not query:
         return []
+
+    uuid_from_config = extract_uuid_from_config(query)
 
     inbounds = get_inbounds()
     results = []
@@ -162,11 +174,18 @@ def search_clients(query):
             email = (c.get("email") or "").lower()
             uid = (c.get("id") or "").lower()
             sub_id = (c.get("subId") or "").lower()
+            comment = (c.get("comment") or "").lower()
 
-            if email == query or uid == query or sub_id == query:
-                return [build_client(c, inbound)]
-            if query in email or query in uid or query in sub_id:
-                results.append(build_client(c, inbound))
+            search_in = [email, uid, sub_id, comment]
+            if uuid_from_config:
+                search_in.append(uuid_from_config)
+
+            for field in search_in:
+                if field == query or (uuid_from_config and field == uuid_from_config):
+                    return [build_client(c, inbound)]
+                if query in field:
+                    results.append(build_client(c, inbound))
+                    break
 
     return results
 
@@ -277,12 +296,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(message):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
-        [InlineKeyboardButton("جستجو با ایمیل", callback_data="search_email")],
+        [InlineKeyboardButton("جستجو با ایمیل/UUID", callback_data="search_email")],
         [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     await message.reply_text(
         "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "اگر اکانت دارید، گزینه جستجو با ایمیل را انتخاب کنید.",
+        "می‌توانید با ایمیل، UUID یا لینک کانفیگ جستجو کنید.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -292,9 +311,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - منوی اصلی\n"
         "/info - اطلاعات اینباندها\n"
         "/clients - لیست کاربران\n"
-        "/search <ایمیل/نام/UUID> - جستجوی کاربر\n"
+        "/search <متن> - جستجوی کاربر\n"
         "/help - راهنما\n\n"
-        "می‌توانید ایمیل، UUID یا قسمتی از نام را جستجو کنید."
+        "می‌توانید جستجو کنید با:\n"
+        " نام کاربری (کامل یا قسمتی)\n"
+        " UUID کاربر\n"
+        " لینک کانفیگ (vmess:// vless:// trojan:// ...)\n"
+        " کامنت یا توضیحات"
     )
 
 
@@ -431,7 +454,7 @@ async def show_my_info_callback(query, context):
     if client:
         text = make_client_text(client)
     else:
-        text = "اکانتی برای شما یافت نشد.\nاز گزینه جستجو با ایمیل استفاده کنید."
+        text = "اکانتی برای شما یافت نشد.\nاز گزینه جستجو با ایمیل/UUID استفاده کنید."
 
     keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -457,11 +480,12 @@ async def show_clients_list_callback(query, context):
 async def back_to_menu(query, context):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
-        [InlineKeyboardButton("جستجو با ایمیل", callback_data="search_email")],
+        [InlineKeyboardButton("جستجو با ایمیل/UUID", callback_data="search_email")],
         [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     await query.edit_message_text(
-        "به ربات مدیریت 3x-ui خوش آمدید!",
+        "به ربات مدیریت 3x-ui خوش آمدید!\n"
+        "می‌توانید با ایمیل، UUID یا لینک کانفیگ جستجو کنید.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
