@@ -926,19 +926,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settings = load_settings()
         ch = settings.get("force_channel", "") or "تنظیم نشده"
         ab = "فعال" if settings.get("auto_backup") else "غیرفعال"
-        bt = settings.get("backup_time", "08:30")
+        bi = "هر {} ساعت".format(settings.get("backup_interval", 24)) if settings.get("auto_backup") else "-"
         nd = ", ".join(str(d) for d in settings.get("notify_days", [3, 1]))
         text = (
             "⚙ تنظیمات ربات\n\n"
             "🔹 کانال اجباری: {}\n"
             "🔹 بکاپ خودکار: {}\n"
-            "🔹 ساعت بکاپ: {}\n"
+            "🔹 فاصله بکاپ: {}\n"
             "🔹 روزهای اعلان: {}\n"
-        ).format(ch, ab, bt, nd)
+        ).format(ch, ab, bi, nd)
         buttons = [
             [InlineKeyboardButton("📢 کانال اجباری", callback_data="set_channel")],
             [InlineKeyboardButton("📤 بکاپ خودکار", callback_data="set_autobackup")],
-            [InlineKeyboardButton("⏰ ساعت بکاپ", callback_data="set_backuptime")],
+            [InlineKeyboardButton("⏰ فاصله بکاپ (ساعت)", callback_data="set_backupinterval")],
             [InlineKeyboardButton("🔔 روزهای اعلان", callback_data="set_notifydays")],
             [InlineKeyboardButton("بازگشت", callback_data="back_to_menu")],
         ]
@@ -957,11 +957,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         st = "فعال" if settings["auto_backup"] else "غیرفعال"
         await query.edit_message_text("✅ بکاپ خودکار {} شد.".format(st),
                                       reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
-    elif data == "set_backuptime":
+    elif data == "set_backupinterval":
         if not is_admin(query.from_user.id):
             return
-        context.user_data["setting_field"] = "backup_time"
-        await query.edit_message_text("ساعت بکاپ را وارد کنید (مثال: 08:30 یا 23:00):")
+        context.user_data["setting_field"] = "backup_interval"
+        await query.edit_message_text("فاصله بکاپ را بر حسب ساعت وارد کنید:\nمثال: 6 (هر ۶ ساعت) یا 12 یا 24")
     elif data == "set_notifydays":
         if not is_admin(query.from_user.id):
             return
@@ -1034,17 +1034,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ کانال اجباری تنظیم شد.",
                                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
             return
-        elif field == "backup_time":
-            import re
-            if re.match(r'^\d{1,2}:\d{2}$', text.strip()):
-                settings["backup_time"] = text.strip()
+        elif field == "backup_interval":
+            try:
+                hours = int(text.strip())
+                if hours < 1:
+                    raise ValueError
+                settings["backup_interval"] = hours
                 save_settings(settings)
                 context.user_data["setting_field"] = None
-                await update.message.reply_text("✅ ساعت بکاپ تنظیم شد. برای اعمال ربات را ریستارت کنید:\nsystemctl restart 3x-ui-bot",
+                await update.message.reply_text("✅ فاصله بکاپ به {} ساعت تنظیم شد. برای اعمال:\nsystemctl restart 3x-ui-bot".format(hours),
                                                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
                 return
-            else:
-                await update.message.reply_text("فرمت اشتباه. مثال: 08:30")
+            except:
+                await update.message.reply_text("عدد معتبر وارد کنید. مثال: 6 یا 12 یا 24")
                 return
         elif field == "notify_days":
             try:
@@ -1185,19 +1187,19 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = load_settings()
     ch = settings.get("force_channel", "") or "تنظیم نشده"
     ab = "فعال" if settings.get("auto_backup") else "غیرفعال"
-    bt = settings.get("backup_time", "08:30")
+    bi = "هر {} ساعت".format(settings.get("backup_interval", 24)) if settings.get("auto_backup") else "-"
     nd = ", ".join(str(d) for d in settings.get("notify_days", [3, 1]))
     text = (
         "⚙ تنظیمات ربات\n\n"
         "🔹 کانال اجباری: {}\n"
         "🔹 بکاپ خودکار: {}\n"
-        "🔹 ساعت بکاپ: {}\n"
+        "🔹 فاصله بکاپ: {}\n"
         "🔹 روزهای اعلان: {}\n"
-    ).format(ch, ab, bt, nd)
+    ).format(ch, ab, bi, nd)
     buttons = [
         [InlineKeyboardButton("📢 کانال اجباری", callback_data="set_channel")],
         [InlineKeyboardButton("📤 بکاپ خودکار", callback_data="set_autobackup")],
-        [InlineKeyboardButton("⏰ ساعت بکاپ", callback_data="set_backuptime")],
+        [InlineKeyboardButton("⏰ فاصله بکاپ (ساعت)", callback_data="set_backupinterval")],
         [InlineKeyboardButton("🔔 روزهای اعلان", callback_data="set_notifydays")],
         [InlineKeyboardButton("بازگشت", callback_data="back_to_menu")],
     ]
@@ -1272,13 +1274,10 @@ def main():
     if job_queue:
         job_queue.run_daily(check_expiry, time=datetime.strptime("08:00", "%H:%M").time(), name="expiry_check")
         settings = load_settings()
-        bt = settings.get("backup_time", "08:30")
-        try:
-            backup_time = datetime.strptime(bt, "%H:%M").time()
-        except:
-            backup_time = datetime.strptime("08:30", "%H:%M").time()
-        job_queue.run_daily(auto_backup, time=backup_time, name="auto_backup")
-        logger.info("Auto backup scheduled at %s", bt)
+        interval_hours = settings.get("backup_interval", 24)
+        first_delay = interval_hours * 3600
+        job_queue.run_repeating(auto_backup, interval=first_delay, first=first_delay, name="auto_backup")
+        logger.info("Auto backup every %d hours", interval_hours)
 
     app.run_polling(drop_pending_updates=True)
 
