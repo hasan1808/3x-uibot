@@ -290,7 +290,10 @@ def create_user_in_db(email, total_gb, expiry_days):
 
         # Restart x-ui to apply
         import subprocess
-        subprocess.run(["/usr/bin/systemctl", "restart", "x-ui"], capture_output=True)
+        import os
+        env = os.environ.copy()
+        env["PATH"] = "/usr/bin:/bin:/usr/local/bin"
+        subprocess.run(["systemctl", "restart", "x-ui"], capture_output=True, env=env)
 
         return {
             "email": email, "uuid": new_uuid, "sub_id": sub_id,
