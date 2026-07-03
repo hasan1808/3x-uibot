@@ -19,11 +19,29 @@ cp bot.sh $INSTALL_DIR/
 chmod +x $INSTALL_DIR/bot.sh
 
 echo "[3/6] Installing Python and dependencies..."
-kill -9 $(pgrep -f apt-get) 2>/dev/null || true
-sleep 2
-apt-get update -qq 2>/dev/null || true
-apt-get install -y -qq python3 python3-pip python3.8-venv sqlite3 2>/dev/null || true
-apt-get install -y -qq python3-venv 2>/dev/null || true
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+fi
+
+if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+    kill -9 $(pgrep -f apt-get) 2>/dev/null || true
+    sleep 2
+    apt-get update -qq 2>/dev/null || true
+    apt-get install -y -qq python3 python3-pip sqlite3 2>/dev/null || true
+    # Try multiple venv package names
+    apt-get install -y -qq python3-venv 2>/dev/null || \
+    apt-get install -y -qq python3.11-venv 2>/dev/null || \
+    apt-get install -y -qq python3.10-venv 2>/dev/null || \
+    apt-get install -y -qq python3.9-venv 2>/dev/null || true
+elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ] || [ "$OS" = "fedora" ]; then
+    yum install -y -q python3 python3-pip sqlite 2>/dev/null || true
+    python3 -m ensurepip --upgrade 2>/dev/null || true
+else
+    apt-get update -qq 2>/dev/null || true
+    apt-get install -y -qq python3 python3-pip sqlite3 python3-venv 2>/dev/null || true
+fi
 
 echo "[4/6] Creating virtual environment and installing packages..."
 cd $INSTALL_DIR

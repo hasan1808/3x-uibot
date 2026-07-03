@@ -40,7 +40,7 @@ def load_settings():
                 return json.load(f)
         except:
             pass
-    return {"force_channel": "", "auto_backup": False, "notify_days": [3, 1]}
+    return {"force_channel": "", "auto_backup": False, "backup_channel": "", "backup_interval": 24, "notify_days": [3, 1]}
 
 
 def save_settings(s):
@@ -632,7 +632,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "/start - منوی اصلی\n/info - اطلاعات اینباندها\n/clients - لیست کاربران\n"
         "/search <متن> - جستجوی کاربر\n/backup - بکاپ دیتابیس (ادمین)\n"
-        "/expiring - کاربران رو به اتمام (ادمین)\n/settings - تنظیمات ربات (ادمین)\n"
+        "/expiring - کاربران رو به اتمام (ادمین)\n/stats - آمار سرور (ادمین)\n"
+        "/clean - غیرفعال‌سازی کاربران منقضی (ادمین)\n/settings - تنظیمات ربات (ادمین)\n"
         "/help - راهنما\n\n"
         "جستجو با: نام کاربری، UUID یا لینک کانفیگ\n"
         "🤖 اعلان خودکار انقضا هر روز ساعت ۸ صبح ارسال می‌شود."
@@ -920,25 +921,28 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "\n(جهت تنظیم پیام اعلان از /notify_config استفاده کنید)"
         await query.edit_message_text(text,
                                       reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]))
-    el    if data == "settings":
+    elif data == "settings":
         if not is_admin(query.from_user.id):
             return
         settings = load_settings()
         ch = settings.get("force_channel", "") or "تنظیم نشده"
         ab = "فعال" if settings.get("auto_backup") else "غیرفعال"
         bi = "هر {} ساعت".format(settings.get("backup_interval", 24)) if settings.get("auto_backup") else "-"
+        bc = settings.get("backup_channel", "") or "تنظیم نشده"
         nd = ", ".join(str(d) for d in settings.get("notify_days", [3, 1]))
         text = (
             "⚙ تنظیمات ربات\n\n"
             "🔹 کانال اجباری: {}\n"
             "🔹 بکاپ خودکار: {}\n"
             "🔹 فاصله بکاپ: {}\n"
+            "🔹 کانال بکاپ: {}\n"
             "🔹 روزهای اعلان: {}\n"
-        ).format(ch, ab, bi, nd)
+        ).format(ch, ab, bi, bc, nd)
         buttons = [
             [InlineKeyboardButton("📢 کانال اجباری", callback_data="set_channel")],
             [InlineKeyboardButton("📤 بکاپ خودکار", callback_data="set_autobackup")],
             [InlineKeyboardButton("⏰ فاصله بکاپ (ساعت)", callback_data="set_backupinterval")],
+            [InlineKeyboardButton("📣 کانال بکاپ", callback_data="set_backupchannel")],
             [InlineKeyboardButton("🔔 روزهای اعلان", callback_data="set_notifydays")],
             [InlineKeyboardButton("بازگشت", callback_data="back_to_menu")],
         ]
@@ -962,6 +966,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         context.user_data["setting_field"] = "backup_interval"
         await query.edit_message_text("فاصله بکاپ را بر حسب ساعت وارد کنید:\nمثال: 6 (هر ۶ ساعت) یا 12 یا 24")
+    elif data == "set_backupchannel":
+        if not is_admin(query.from_user.id):
+            return
+        context.user_data["setting_field"] = "backup_channel"
+        await query.edit_message_text("آیدی عددی کانال یا یوزرنیم کانال را وارد کنید:\n(مثال: @mychannel یا -100123456789)")
     elif data == "set_notifydays":
         if not is_admin(query.from_user.id):
             return
@@ -1032,6 +1041,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_settings(settings)
             context.user_data["setting_field"] = None
             await update.message.reply_text("✅ کانال اجباری تنظیم شد.",
+                                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
+            return
+        elif field == "backup_channel":
+            settings["backup_channel"] = text.strip()
+            save_settings(settings)
+            context.user_data["setting_field"] = None
+            await update.message.reply_text("✅ کانال بکاپ تنظیم شد.",
                                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="settings")]]))
             return
         elif field == "backup_interval":
@@ -1184,6 +1200,89 @@ async def back_to_menu(query, context):
 NOTIFY_DAYS = [3, 1]
 
 
+def disable_expired_clients():
+    db_path = find_database()
+    if not db_path:
+        return 0
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, settings FROM inbounds")
+        rows = cursor.fetchall()
+        now_ms = int(datetime.now().timestamp() * 1000)
+        disabled = 0
+        for row in rows:
+            inbound_id = row[0]
+            settings = json.loads(row[1]) if row[1] else {}
+            changed = False
+            for c in settings.get("clients", []):
+                e = c.get("expiryTime", 0)
+                if e > 1600000000000 and e < now_ms and c.get("enable", True):
+                    c["enable"] = False
+                    c["updated_at"] = now_ms
+                    changed = True
+                    disabled += 1
+            if changed:
+                cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), inbound_id))
+        conn.commit()
+        conn.close()
+        if disabled:
+            run_cmd(["systemctl", "restart", "x-ui"])
+        return disabled
+    except Exception as e:
+        logger.error("Disable expired error: %s", e)
+        return 0
+
+
+def get_stats():
+    clients = get_all_clients()
+    total = len(clients)
+    enabled = sum(1 for c in clients if c.get("enable"))
+    now_ms = int(datetime.now().timestamp() * 1000)
+    expired = 0
+    total_used = 0
+    total_limit = 0
+    for c in clients:
+        e = c.get("expiry", 0)
+        if e > 1600000000000 and e < now_ms:
+            expired += 1
+        if c.get("traffic"):
+            total_used += c["traffic"].get("up", 0) + c["traffic"].get("down", 0)
+        total_limit += c.get("total_gb", 0) or 0
+    disabled = total - enabled
+    return {
+        "total": total, "enabled": enabled, "disabled": disabled,
+        "expired": expired, "total_used": total_used, "total_limit": total_limit,
+    }
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("فقط ادمین!")
+        return
+    s = get_stats()
+    text = (
+        "📊 آمار سرور\n\n"
+        "🔹 کل کاربران: {}\n"
+        "🔹 فعال: {}\n"
+        "🔹 غیرفعال: {}\n"
+        "🔹 منقضی شده: {}\n"
+        "🔹 حجم مصرفی کل: {}\n"
+        "🔹 حجم محدودیت کل: {}\n"
+    ).format(s["total"], s["enabled"], s["disabled"], s["expired"],
+             format_bytes(s["total_used"]), format_bytes(s["total_limit"]))
+    await update.message.reply_text(text)
+
+
+async def clean_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("فقط ادمین!")
+        return
+    await update.message.reply_text("در حال بررسی کاربران منقضی...")
+    count = disable_expired_clients()
+    await update.message.reply_text("✅ {} کاربر منقضی غیرفعال شدند.".format(count))
+
+
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("فقط ادمین!")
@@ -1192,18 +1291,21 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ch = settings.get("force_channel", "") or "تنظیم نشده"
     ab = "فعال" if settings.get("auto_backup") else "غیرفعال"
     bi = "هر {} ساعت".format(settings.get("backup_interval", 24)) if settings.get("auto_backup") else "-"
+    bc = settings.get("backup_channel", "") or "تنظیم نشده"
     nd = ", ".join(str(d) for d in settings.get("notify_days", [3, 1]))
     text = (
         "⚙ تنظیمات ربات\n\n"
         "🔹 کانال اجباری: {}\n"
         "🔹 بکاپ خودکار: {}\n"
         "🔹 فاصله بکاپ: {}\n"
+        "🔹 کانال بکاپ: {}\n"
         "🔹 روزهای اعلان: {}\n"
-    ).format(ch, ab, bi, nd)
+    ).format(ch, ab, bi, bc, nd)
     buttons = [
         [InlineKeyboardButton("📢 کانال اجباری", callback_data="set_channel")],
         [InlineKeyboardButton("📤 بکاپ خودکار", callback_data="set_autobackup")],
         [InlineKeyboardButton("⏰ فاصله بکاپ (ساعت)", callback_data="set_backupinterval")],
+        [InlineKeyboardButton("📣 کانال بکاپ", callback_data="set_backupchannel")],
         [InlineKeyboardButton("🔔 روزهای اعلان", callback_data="set_notifydays")],
         [InlineKeyboardButton("بازگشت", callback_data="back_to_menu")],
     ]
@@ -1239,8 +1341,6 @@ async def auto_backup(context: ContextTypes.DEFAULT_TYPE):
     settings = load_settings()
     if not settings.get("auto_backup"):
         return
-    if not ADMIN_TELEGRAM_ID:
-        return
     db_path = find_database()
     if not db_path:
         return
@@ -1249,9 +1349,18 @@ async def auto_backup(context: ContextTypes.DEFAULT_TYPE):
     try:
         copy2(db_path, backup_path)
         with open(backup_path, "rb") as f:
-            await context.bot.send_document(chat_id=ADMIN_TELEGRAM_ID, document=f, filename="x-ui.db.auto.backup")
+            chat_id = settings.get("backup_channel", "") or ADMIN_TELEGRAM_ID
+            if isinstance(chat_id, str) and chat_id.startswith("@"):
+                chat_id = chat_id
+            elif isinstance(chat_id, str) and chat_id.lstrip("-").isdigit():
+                chat_id = int(chat_id)
+            if not chat_id:
+                logger.warning("No backup target configured")
+                os.remove(backup_path)
+                return
+            await context.bot.send_document(chat_id=chat_id, document=f, filename="x-ui.db.auto.backup")
         os.remove(backup_path)
-        logger.info("Auto backup sent to admin")
+        logger.info("Auto backup sent to %s", chat_id)
     except Exception as e:
         logger.error("Auto backup error: %s", e)
 
@@ -1270,6 +1379,8 @@ def main():
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("backup", backup_command))
     app.add_handler(CommandHandler("expiring", expiring_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("clean", clean_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
