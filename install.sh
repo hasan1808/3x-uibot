@@ -61,10 +61,21 @@ echo "  Enter your Telegram user ID (admin)."
 echo "  (Use @userinfobot in Telegram to get your ID)"
 read -p "  Admin Telegram ID: " ADMIN_ID
 
+echo ""
+echo "  Enter your server domain or IP address."
+echo "  (Used for generating config links)"
+read -p "  Server domain/IP: " SERVER_DOMAIN
+
 cat > $INSTALL_DIR/.env << EOF
 TELEGRAM_BOT_TOKEN=$TOKEN
 ADMIN_TELEGRAM_ID=$ADMIN_ID
+SERVER_DOMAIN=$SERVER_DOMAIN
 EOF
+
+# If SERVER_DOMAIN is empty, remove it from .env
+if [ -z "$SERVER_DOMAIN" ]; then
+    sed -i '/^SERVER_DOMAIN=/d' $INSTALL_DIR/.env
+fi
 
 chmod 600 $INSTALL_DIR/.env
 echo "  .env file created"
