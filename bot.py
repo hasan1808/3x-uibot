@@ -296,12 +296,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(message):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
-        [InlineKeyboardButton("جستجو با ایمیل/UUID", callback_data="search_email")],
+        [InlineKeyboardButton("جستجوی خودکار", callback_data="search_email")],
         [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     await message.reply_text(
         "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "می‌توانید با ایمیل، UUID یا لینک کانفیگ جستجو کنید.",
+        "کافیه ایمیل، UUID یا لینک کانفیگت رو بفرستی تا اطلاعات کاربر رو پیدا کنم.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -370,7 +370,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_my_info_callback(query, context)
     elif query.data == "search_email":
         context.user_data["awaiting_email"] = True
-        await query.edit_message_text("ایمیل کاربر را وارد کنید:")
+        await query.edit_message_text("ایمیل، UUID یا لینک کانفیگ را بفرستید:")
     elif query.data == "list_clients":
         await show_clients_list_callback(query, context)
     elif query.data == "back_to_menu":
@@ -397,7 +397,7 @@ async def show_search_results(message, query):
         keyboard = [[InlineKeyboardButton("بازگشت", callback_data="back_to_menu")]]
         await message.reply_text(
             "نتیجه‌ای برای '{}' یافت نشد.\n"
-            "می‌توانید با ایمیل، UUID یا نام جستجو کنید.".format(query),
+            "می‌توانید ایمیل، UUID یا لینک کانفیگ بفرستید.".format(query),
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
@@ -480,12 +480,12 @@ async def show_clients_list_callback(query, context):
 async def back_to_menu(query, context):
     keyboard = [
         [InlineKeyboardButton("اطلاعات من", callback_data="my_info")],
-        [InlineKeyboardButton("جستجو با ایمیل/UUID", callback_data="search_email")],
+        [InlineKeyboardButton("جستجوی خودکار", callback_data="search_email")],
         [InlineKeyboardButton("لیست کاربران", callback_data="list_clients")],
     ]
     await query.edit_message_text(
         "به ربات مدیریت 3x-ui خوش آمدید!\n"
-        "می‌توانید با ایمیل، UUID یا لینک کانفیگ جستجو کنید.",
+        "کافیه ایمیل، UUID یا لینک کانفیگت رو بفرستی تا اطلاعات کاربر رو پیدا کنم.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
