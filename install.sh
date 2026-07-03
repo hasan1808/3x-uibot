@@ -66,25 +66,16 @@ echo "  Enter your server domain or IP address."
 echo "  (Used for generating config links)"
 read -p "  Server domain/IP: " SERVER_DOMAIN
 
-echo ""
-echo "  Enter subscription port (usually the panel port, e.g. 65432)."
-echo "  Leave empty to use the inbound port."
-read -p "  Subscription port: " SUB_PORT
-
 cat > $INSTALL_DIR/.env << EOF
 TELEGRAM_BOT_TOKEN=$TOKEN
 ADMIN_TELEGRAM_ID=$ADMIN_ID
 SERVER_DOMAIN=$SERVER_DOMAIN
-SUBSCRIPTION_PORT=$SUB_PORT
 EOF
 
-# Remove empty vars from .env
-for var in SERVER_DOMAIN SUBSCRIPTION_PORT; do
-    eval val=\$$var
-    if [ -z "$val" ]; then
-        sed -i "/^$var=/d" $INSTALL_DIR/.env
-    fi
-done
+# If SERVER_DOMAIN is empty, remove it from .env
+if [ -z "$SERVER_DOMAIN" ]; then
+    sed -i '/^SERVER_DOMAIN=/d' $INSTALL_DIR/.env
+fi
 
 chmod 600 $INSTALL_DIR/.env
 echo "  .env file created"

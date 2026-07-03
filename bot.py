@@ -16,7 +16,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from config import TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_ID, SERVER_DOMAIN, SUBSCRIPTION_PORT
+from config import TELEGRAM_BOT_TOKEN, ADMIN_TELEGRAM_ID, SERVER_DOMAIN
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -271,12 +271,29 @@ def get_config_link(client):
     return "vless://{}@{}:{}?type=tcp&security=none&#{}".format(uuid, domain, port, email)
 
 
+def get_panel_setting(key):
+    db = get_db()
+    if not db:
+        return None
+    try:
+        cursor = db.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
+        row = cursor.fetchone()
+        db.close()
+        return row[0] if row else None
+    except:
+        db.close()
+        return None
+
+
 def get_subscription_link(client):
     domain = SERVER_DOMAIN or "YOUR_SERVER_IP"
-    port = SUBSCRIPTION_PORT if SUBSCRIPTION_PORT else client["inbound_port"]
+    sub_port = get_panel_setting("subPort")
+    port = int(sub_port) if sub_port else client["inbound_port"]
     sub_id = client.get("sub_id", "")
     if sub_id:
-        return "http://{}:{}/sub/{}".format(domain, port, sub_id)
+        base_path = get_panel_setting("webBasePath") or ""
+        return "http://{}:{}{}sub/{}".format(domain, port, base_path, sub_id)
     return None
 
 

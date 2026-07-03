@@ -6,7 +6,3 @@ try:
     ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 except:
     ADMIN_TELEGRAM_ID = 0
-try:
-    SUBSCRIPTION_PORT = int(os.getenv("SUBSCRIPTION_PORT", "0"))
-except:
-    SUBSCRIPTION_PORT = 0
